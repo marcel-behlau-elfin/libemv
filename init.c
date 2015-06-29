@@ -46,7 +46,7 @@ static void get_transaction_time_HHmmss(char* strtime)
 LIBEMV_API void libemv_init(void)
 {
 	init_functions();
-	libemv_debug_enabled = 0;
+	libemv_debug_enabled = 1;
 
 	libemv_init_tlv_buffer();
 

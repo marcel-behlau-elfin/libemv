@@ -1,8 +1,11 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <Winscard.h>
+#include <PCSC/wintypes.h>
+#include <PCSC/winscard.h>
 #include "include/libemv.h"
+#include "internal.h"
 
 SCARDHANDLE hCardHandle;
 
@@ -137,7 +140,7 @@ int main(int argc, char **argv)
 		break;
 	}
 
-	TCHAR           szReader[200];
+	char           szReader[200];
 	cch = 200;
 	BYTE            bAttr[32];
 	DWORD           cByte = 32;
@@ -183,11 +186,11 @@ int main(int argc, char **argv)
 		printf("Card has specific communication protocols set.\n");
 		break;
 	default:
-		printf("Unknown or unexpected card state.\n");
+		printf("Unknown or unexpected card state. %d\n", dwState);
 		break;
 	}
 
-	srand((unsigned int) time(NULL));
+ srand (time(NULL));
 	libemv_init();
 
 	libemv_set_debug_enabled(1);
@@ -271,8 +274,84 @@ int main(int argc, char **argv)
 		printf("\nApp buffer:\n");
 		while ((shift = libemv_get_next_tag(shift, &tag, &data, &length)) != 0)
 		{
+			const char *type;
+			switch(tag)
+			{
+				case TAG_FCI_TEMPLATE: type = "TAG_FCI_TEMPLATE"; break;
+				case TAG_DF_NAME: type = "TAG_DF_NAME"; break;
+				case TAG_FCI_PROP_TEMPLATE: type = "TAG_FCI_PROP_TEMPLATE"; break;
+				case TAG_SFI_OF_DEF: type = "TAG_SFI_OF_DEF"; break;
+				case TAG_LANGUAGE_PREFERENCE: type = "TAG_LANGUAGE_PREFERENCE"; break;
+				case TAG_ISSUER_CODE_TABLE_INDEX: type = "TAG_ISSUER_CODE_TABLE_INDEX"; break;
+				case TAG_FCI_ISSUER_DISCR_DATA: type = "TAG_FCI_ISSUER_DISCR_DATA"; break;
+				case TAG_APPLICATION_LABEL: type = "TAG_APPLICATION_LABEL"; break;
+				case TAG_APP_PRIORITY_INDICATOR: type = "TAG_APP_PRIORITY_INDICATOR"; break;
+				case TAG_PDOL: type = "TAG_PDOL"; break;
+				case TAG_TVR: type = "TAG_TVR"; break;
+				case TAG_TSI: type = "TAG_TSI"; break;
+				case TAG_APPLICATION_TEMPLATE: type = "TAG_APPLICATION_TEMPLATE"; break;
+				case TAG_ADF_NAME: type = "TAG_ADF_NAME"; break;
+				case TAG_APP_PREFERRED_NAME: type = "TAG_APP_PREFERRED_NAME"; break;
+				case TAG_TERMINAL_CAPABILITIES: type = "TAG_TERMINAL_CAPABILITIES"; break;
+				case TAG_ADDI_TERMINAL_CAPABILITIES: type = "TAG_ADDI_TERMINAL_CAPABILITIES"; break;
+				case TAG_AID: type = "TAG_AID"; break;
+				case TAG_IFD_SERIAL_NUMBER: type = "TAG_IFD_SERIAL_NUMBER"; break;
+				case TAG_TERMINAL_COUNTRY_CODE: type = "TAG_TERMINAL_COUNTRY_CODE"; break;
+				case TAG_TERMINAL_TYPE: type = "TAG_TERMINAL_TYPE"; break;
+				case TAG_ACQUIRER_ID: type = "TAG_ACQUIRER_ID"; break;
+				case TAG_APPLICATION_VERSION_NUMBER: type = "TAG_APPLICATION_VERSION_NUMBER"; break;
+				case TAG_MCC: type = "TAG_MCC"; break;
+				case TAG_MERCHANT_ID: type = "TAG_MERCHANT_ID"; break;
+				case TAG_MERCHANT_NAME_AND_LOCATION: type = "TAG_MERCHANT_NAME_AND_LOCATION"; break;
+				case TAG_TERMINAL_FLOOR_LIMIT: type = "TAG_TERMINAL_FLOOR_LIMIT"; break;
+				case TAG_TERMINAL_ID: type = "TAG_TERMINAL_ID"; break;
+				case TAG_RISK_MANAGEMENT_DATA: type = "TAG_RISK_MANAGEMENT_DATA"; break;
+				case TAG_TRANSACTION_REFERENCE_CURRENCY: type = "TAG_TRANSACTION_REFERENCE_CURRENCY"; break;
+				case TAG_TRANSACTION_REFERENCE_EXPONENT: type = "TAG_TRANSACTION_REFERENCE_EXPONENT"; break;
+				case TAG_AIP: type = "TAG_AIP"; break;
+				case TAG_AFL: type = "TAG_AFL"; break;
+				case TAG_COMMAND_TEMPLATE: type = "TAG_COMMAND_TEMPLATE"; break;
+				case TAG_RESPONSE_FORMAT_1: type = "TAG_RESPONSE_FORMAT_1"; break;
+				case TAG_RESPONSE_FORMAT_2: type = "TAG_RESPONSE_FORMAT_2"; break;
+				case TAG_READ_RECORD_RESPONSE_TEMPLATE: type = "TAG_READ_RECORD_RESPONSE_TEMPLATE"; break;
+				case TAG_APPLICATION_EXP_DATE: type = "TAG_APPLICATION_EXP_DATE"; break;
+				case TAG_PAN: type = "TAG_PAN"; break;
+				case TAG_CDOL_1: type = "TAG_CDOL_1"; break;
+				case TAG_CDOL_2: type = "TAG_CDOL_2"; break;
+				case TAG_TRACK1: type = "TAG_TRACK1"; break;
+				case TAG_TRACK2: type = "TAG_TRACK2"; break;
+				case TAG_APPLICATION_EFFECTIVE_DATE: type = "TAG_APPLICATION_EFFECTIVE_DATE"; break;
+				case TAG_TXN_CURRENCY_CODE: type = "TAG_TXN_CURRENCY_CODE"; break;
+				case TAG_SERVICE_CODE: type = "TAG_SERVICE_CODE"; break;
+				case TAG_APPLICATION_PSN: type = "TAG_APPLICATION_PSN"; break;
+				case TAG_TXN_CURRENCY_EXPONENT: type = "TAG_TXN_CURRENCY_EXPONENT"; break;
+				case TAG_ACCOUNT_TYPE: type = "TAG_ACCOUNT_TYPE"; break;
+				case TAG_CVM_LIST: type = "TAG_CVM_LIST"; break;
+				case TAG_CERTIFICATE_AUTH_PKI: type = "TAG_CERTIFICATE_AUTH_PKI"; break;
+				case TAG_ISSUER_PUBLIC_KEY_CERTIFICATE: type = "TAG_ISSUER_PUBLIC_KEY_CERTIFICATE"; break;
+				case TAG_ISSUER_PUBLIC_KEY_REMAINDER: type = "TAG_ISSUER_PUBLIC_KEY_REMAINDER"; break;
+				case TAG_ISSUER_ACTION_CODE_DEFAULT: type = "TAG_ISSUER_ACTION_CODE_DEFAULT"; break;
+				case TAG_ISSUER_ACTION_CODE_DENIAL: type = "TAG_ISSUER_ACTION_CODE_DENIAL"; break;
+				case TAG_ISSUER_ACTION_CODE_ONLINE: type = "TAG_ISSUER_ACTION_CODE_ONLINE"; break;
+				case TAG_ICC_PUBLIC_KEY_CERTIFICATE: type = "TAG_ICC_PUBLIC_KEY_CERTIFICATE"; break;
+				case TAG_ICC_PUBLIC_KEY_EXPONENT: type = "TAG_ICC_PUBLIC_KEY_EXPONENT"; break;
+				case TAG_ICC_PUBLIC_KEY_REMAINDER: type = "TAG_ICC_PUBLIC_KEY_REMAINDER"; break;
+				case TAG_SDA: type = "TAG_SDA"; break;
+				case TAG_SDAD: type = "TAG_SDAD"; break;
+				case TAG_APPLICATION_CURRENCY_CODE: type = "TAG_APPLICATION_CURRENCY_CODE"; break;
+				case TAG_APPLICATION_CURRENCY_EXPONENT: type = "TAG_APPLICATION_CURRENCY_EXPONENT"; break;
+				case TAG_TRACK1_DISC_DATA: type = "TAG_TRACK1_DISC_DATA"; break;
+				case TAG_TRACK2_DISC_DATA: type = "TAG_TRACK2_DISC_DATA"; break;
+				case TAG_ISSUER_COUNTRY_CODE: type = "TAG_ISSUER_COUNTRY_CODE"; break;
+				case TAG_APPLICATION_USAGE_CONTROL: type = "TAG_APPLICATION_USAGE_CONTROL"; break;
+				case TAG_DDOL: type = "TAG_DDOL"; break;
+				case TAG_CARDHOLDER_NAME: type = "TAG_CARDHOLDER_NAME"; break;
+				case TAG_ISSUER_PUBLIC_KEY_EXPONENT: type = "TAG_ISSUER_PUBLIC_KEY_EXPONENT"; break;
+				default: type = "UNKNOWN"; break;
+			}
+
 			bool isAscii = true;
-			printf("- %4X [%d]: {", tag, length);
+			printf("- %4X [%s] [%d]: {", tag, type, length);
 			for (int idx = 0; idx < length; idx++)
 			{
 				printf("%02X, ", data[idx] & 0xFF);
@@ -282,14 +361,18 @@ int main(int argc, char **argv)
 			printf("}\n");
 			if (isAscii)
 			{
-				char* strData = new char[length + 1];
+				char* strData = (char *)malloc(length + 1);
 				strData[length] = 0;
 				memcpy(strData, data, length);
 				printf("ascii: %s\n", strData);
-				delete[] strData;
+				free(strData);
 			}
 		}
 	}
+
+	printf("running card authentication\n");
+	lReturn = libemv_authenticate_card();
+	printf(" returns %d\n", lReturn);
 
 	return 0;
 }

@@ -164,6 +164,7 @@ typedef struct
 #define LIBEMV_NOT_SUPPORTED			-3	// The command is not supported by the ICC (SW1 SW2 = '6A81'), the terminal terminates the card session
 #define LIBEMV_TERMINATED				-4	// Transaction is terminated
 #define LIBEMV_NOT_SATISFIED			-5	// Get processing option failed
+#define LIBEMV_VERIFY_FAIL              -6
 
 // Transaction flow. Build candidate list
 // Result (return value) can be:
@@ -204,6 +205,9 @@ LIBEMV_API int libemv_get_processing_option(void);
 // LIBEMV_OK - ok, you can process next step and use libemv_get_tag to get some tags (for ex. PAN)
 // LIBEMV_TERMINATED, LIBEMV_ERROR_TRANSMIT, LIBEMV_UNKNOWN_ERROR
 LIBEMV_API int libemv_read_app_data(void);
+
+// Perform card authentication
+LIBEMV_API int libemv_authenticate_card(void);
 
 /*
 libemv_build_candidate_list
