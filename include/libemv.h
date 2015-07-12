@@ -108,7 +108,7 @@ typedef struct
 // Settings global, EMV book 4, Application Dependent Data
 typedef struct
 {
-	unsigned char RID[5];								// Registered Application Provider Identifier, Ex. {0xA0, 0x00, 0x00, 0x00, 0x03}
+	//unsigned char RID[5];								// Registered Application Provider Identifier, Ex. {0xA0, 0x00, 0x00, 0x00, 0x03}
 	int aidsCount;										// Count of AIDs in this configuration
 	LIBEMV_AID aids[20];								// AIDs of current configuration
 	char strAcquirerIdentifier[7];						// Ex. "100200"

@@ -15,6 +15,9 @@ static unsigned char static_data_to_be_auth[10*1024];
 static int static_data_to_be_auth_len = 0;
 static int transaction_number = 1;
 
+extern EMV_RID_MODULUS libemv_public_modulus[];
+extern int libemv_public_modulus_count;
+
 static int read_issuer_public_key(unsigned char *key, int *key_size);
 static int read_icc_public_key(unsigned char *key, int *key_size);
 static int verify_sda(void);
@@ -911,6 +914,9 @@ LIBEMV_API int libemv_get_processing_option(void)
 	{
 		if (libemv_debug_enabled)
 			libemv_printf("PDOL is absent\n");
+		lcSize = 2;
+		lcData[0] = 0x83;
+		lcData[1] = 0x00;
 	}
 
 	do
@@ -1143,20 +1149,6 @@ LIBEMV_API int libemv_read_app_data(void)
 	return LIBEMV_OK;
 }
 
-unsigned char visa_key_modulus[] = {
-	0xD9, 0xFD, 0x6E, 0xD7, 0x5D, 0x51, 0xD0, 0xE3, 0x06, 0x64, 0xBD, 0x15, 0x70, 0x23, 0xEA, 0xA1,
-	0xFF, 0xA8, 0x71, 0xE4, 0xDA, 0x65, 0x67, 0x2B, 0x86, 0x3D, 0x25, 0x5E, 0x81, 0xE1, 0x37, 0xA5,
-	0x1D, 0xE4, 0xF7, 0x2B, 0xCC, 0x9E, 0x44, 0xAC, 0xE1, 0x21, 0x27, 0xF8, 0x7E, 0x26, 0x3D, 0x3A,
-	0xF9, 0xDD, 0x9C, 0xF3, 0x5C, 0xA4, 0xA7, 0xB0, 0x1E, 0x90, 0x70, 0x00, 0xBA, 0x85, 0xD2, 0x49,
-	0x54, 0xC2, 0xFC, 0xA3, 0x07, 0x48, 0x25, 0xDD, 0xD4, 0xC0, 0xC8, 0xF1, 0x86, 0xCB, 0x02, 0x0F,
-	0x68, 0x3E, 0x02, 0xF2, 0xDE, 0xAD, 0x39, 0x69, 0x13, 0x3F, 0x06, 0xF7, 0x84, 0x51, 0x66, 0xAC,
-	0xEB, 0x57, 0xCA, 0x0F, 0xC2, 0x60, 0x34, 0x45, 0x46, 0x98, 0x11, 0xD2, 0x93, 0xBF, 0xEF, 0xBA,
-	0xFA, 0xB5, 0x76, 0x31, 0xB3, 0xDD, 0x91, 0xE7, 0x96, 0xBF, 0x85, 0x0A, 0x25, 0x01, 0x2F, 0x1A,
-	0xE3, 0x8F, 0x05, 0xAA, 0x5C, 0x4D, 0x6D, 0x03, 0xB1, 0xDC, 0x2E, 0x56, 0x86, 0x12, 0x78, 0x59,
-	0x38, 0xBB, 0xC9, 0xB3, 0xCD, 0x3A, 0x91, 0x0C, 0x1D, 0xA5, 0x5A, 0x5A, 0x92, 0x18, 0xAC, 0xE0,
-	0xF7, 0xA2, 0x12, 0x87, 0x75, 0x26, 0x82, 0xF1, 0x58, 0x32, 0xA6, 0x78, 0xD6, 0xE1, 0xED, 0x0B };
-unsigned char visa_key_exponent[] = { 0x03 };
-
 LIBEMV_API int libemv_authenticate_card(void)
 {
 	unsigned char *tag_data;
@@ -1336,29 +1328,81 @@ static int verify_dda(void)
 
 static int read_issuer_public_key(unsigned char *key, int *key_size)
 {
-	int size, i, ret, iin_len;
-	unsigned char *enc_cert, *tag_data;
+	int size, i, ret, iin_len, cert_len;
+	unsigned char *enc_cert, *tag_data, *aid, *pub_key_index;
 	unsigned char cert[256];
 	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
-	int cert_len = 176;
+	EMV_RID_MODULUS *pubkey = NULL;
 	unsigned char mlist[1024], iin[12];
 	unsigned char *ptr = mlist;
 	unsigned char hash[20];
 	SHA1Context sha1;
 
+	//get the aid
+	aid = libemv_get_tag(TAG_AID, &size);
+	if(aid == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("AID not found\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//the first 5 bytes are the RID, we use that with the with the public key index to look up the modulus
+	pub_key_index = libemv_get_tag(TAG_CERTIFICATE_AUTH_PKI, &size);
+	if(pub_key_index == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public key index not found\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//find the public key for the RID/index
+	for(i = 0; i < libemv_public_modulus_count; i++)
+	{
+		if(libemv_public_modulus[i].index == pub_key_index[0] &&
+			libemv_public_modulus[i].rid[0] == aid[0] &&
+			libemv_public_modulus[i].rid[1] == aid[1] &&
+			libemv_public_modulus[i].rid[2] == aid[2] &&
+			libemv_public_modulus[i].rid[3] == aid[3] &&
+			libemv_public_modulus[i].rid[4] == aid[4])
+		{
+			pubkey = &libemv_public_modulus[i];
+			cert_len = pubkey->modulus_len;
+			break;
+		}
+	}
+
+	if(pubkey == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public modulus was not found for RID/index\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
 	//get the issuer certificate
 	enc_cert = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_CERTIFICATE, &size);
 	if(enc_cert == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public certificate not found\n");
 		return LIBEMV_VERIFY_FAIL;
+	}
 
-	NN_Decode(s, MAX_NN_DIGITS, enc_cert, size);
-	NN_Decode(ns, MAX_NN_DIGITS, visa_key_modulus, cert_len);
-	NN_Decode(es, MAX_NN_DIGITS, visa_key_exponent, 1);
+	if(size != cert_len)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public modulus length did not match public modulus\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	NN_Decode(s, MAX_NN_DIGITS, enc_cert, cert_len);
+	NN_Decode(ns, MAX_NN_DIGITS, pubkey->modulus, cert_len);
+	NN_Decode(es, MAX_NN_DIGITS, pubkey->exponent, pubkey->exponent_len);
 
 	//S^(eS)mod nS
 	NN_AssignZero(x, MAX_NN_DIGITS);
-	NN_ModExp(x, s, es, 1, ns, size);
-	NN_Encode(cert, cert_len, x, size);
+	NN_ModExp(x, s, es, pubkey->exponent_len, ns, cert_len);
+	NN_Encode(cert, cert_len, x, cert_len);
 
 	// Step 2: The Recovered Data Trailer is equal to 'BC'
 	if(cert[cert_len - 1] != 0xBC)
