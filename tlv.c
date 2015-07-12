@@ -1,5 +1,6 @@
 #include "include/libemv.h"
 #include "internal.h"
+#include <stdio.h>
 #include <string.h>
 
 // Application buffer, from ICC and terminal

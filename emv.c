@@ -1201,15 +1201,13 @@ LIBEMV_API int libemv_process_transaction(void)
 
 	libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
 	libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
-	if(ac_tag != 0x80)
+	if(ac_tag != TAG_RESPONSE_FORMAT_1)
 		return LIBEMV_PROCESS_FAIL;
 
 	printf("AC: ");
 	for(i = 0; i < ac_size; i++)
 		printf("%02X ", ac[i]);
 	printf("\n");
-
-	
 
 	return LIBEMV_OK;
 }
@@ -1266,10 +1264,47 @@ static int verify_dda(void)
 	//send the intitiate command
 	libemv_apdu(0x00, 0x88, 0x00, 0x00, cmd_size, cmd_data, &read_size, read_data);
 	libemv_parse_tlv(read_data, read_size, &asn_tag, &asn, &asn_size);
-	if(asn_tag != 0x80)
+	if(asn_tag == TAG_RESPONSE_FORMAT_1)
+	{
+		libemv_set_tag(TAG_SDAD, asn, asn_size);
+	}
+	else if(asn_tag == TAG_RESPONSE_FORMAT_2)
+	{
+		unsigned char *parseData_1 = asn;
+		int parseSize_1 = asn_size;
+
+		while(1)
+		{
+			int parseShift_2;
+			unsigned short parseTag_2;
+			unsigned char* parseData_2;
+			int parseSize_2;
+
+			parseShift_2 = libemv_parse_tlv(parseData_1, parseSize_1, &parseTag_2, &parseData_2, &parseSize_2);
+			if(!parseShift_2)
+				break;
+
+			libemv_set_tag(parseTag_2, parseData_2, parseSize_2);
+
+			parseData_1 += parseShift_2;
+			parseSize_1 -= parseShift_2;
+		}
+	}
+	else
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad ASN for initiate command %02X\n", asn_tag);
 		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//get the asn key
+	asn = libemv_get_tag(TAG_SDAD, &asn_size);
 	if(asn_size != key_size)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad ASN size %d\n", asn_size);
 		return LIBEMV_VERIFY_FAIL;
+	}
 
 	//get the exponent
 	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_EXPONENT, &size);
@@ -1406,15 +1441,27 @@ static int read_issuer_public_key(unsigned char *key, int *key_size)
 
 	// Step 2: The Recovered Data Trailer is equal to 'BC'
 	if(cert[cert_len - 1] != 0xBC)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode BC\n");
 		return LIBEMV_VERIFY_FAIL;
+	}
 
 	// Step 3: The Recovered Data Header is equal to '6A'
 	if(cert[0] != 0x6A)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode 6A\n");
 		return LIBEMV_VERIFY_FAIL;
+	}
 
 	// Step 4: The Certificate Format is equal to '02'
 	if(cert[1] != 0x02)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode 02\n");
 		return LIBEMV_VERIFY_FAIL;
+	}
 
 	// Step 5: Concatenation of Certificate Format through Issuer Public Key
 	//         or Leftmost Digits of the Issuer Public Key, 
