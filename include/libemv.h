@@ -207,11 +207,11 @@ LIBEMV_API int libemv_get_processing_option(void);
 // LIBEMV_TERMINATED, LIBEMV_ERROR_TRANSMIT, LIBEMV_UNKNOWN_ERROR
 LIBEMV_API int libemv_read_app_data(void);
 
-// Perform card authentication
-LIBEMV_API int libemv_authenticate_card(void);
-
-// Process transaction
-LIBEMV_API int libemv_process_transaction(void);
+LIBEMV_API int libemv_process_offline_authenticate(void);
+LIBEMV_API int libemv_process_restrictions(void);
+LIBEMV_API int libemv_process_risk_management(void);
+LIBEMV_API int libemv_process_cardholder_verification(void);
+LIBEMV_API int libemv_process_transaction_decision(void);
 
 /*
 libemv_build_candidate_list

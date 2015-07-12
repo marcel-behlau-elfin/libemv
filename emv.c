@@ -1149,24 +1149,12 @@ LIBEMV_API int libemv_read_app_data(void)
 	return LIBEMV_OK;
 }
 
-LIBEMV_API int libemv_authenticate_card(void)
-{
-	unsigned char *tag_data;
-	int size;
-
-	tag_data = libemv_get_tag(TAG_AIP, &size);
-	if(tag_data[0] & 0x20)
-		return verify_dda();
-	else
-		return verify_sda();
-}
-
-LIBEMV_API int libemv_process_transaction(void)
+LIBEMV_API int libemv_process_transaction_decision(void)
 {
 	unsigned char cmd_data[1024], read_data[1024], tag[6];
-	unsigned char *cdol1, *ac;
+	unsigned char *cdol1, *cdol2, *ac, approval_p1;
 	unsigned short ac_tag;
-	int i, cmd_size = 0, read_size, ac_size, cdol1_size;
+	int i, cmd_size = 0, read_size, ac_size, cdol1_size, cdol2_size;
 
 	//authorize amount
 	tobcd(9543, tag, 6);
@@ -1201,15 +1189,98 @@ LIBEMV_API int libemv_process_transaction(void)
 
 	libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
 	libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
-	if(ac_tag != TAG_RESPONSE_FORMAT_1)
+	if(ac_tag == TAG_RESPONSE_FORMAT_1)
+	{
+		libemv_set_tag(TAG_CID, &ac[0], 1);
+		libemv_set_tag(TAG_ATC, &ac[1], 2);
+		libemv_set_tag(TAG_APP_CRYPTOGRAM, &ac[3], 8);
+		if(ac_size > 11)
+			libemv_set_tag(TAG_IAD, &ac[11], ac_size - 11);
+	}
+	else
+	{
 		return LIBEMV_PROCESS_FAIL;
+	}
 
-	printf("AC: ");
-	for(i = 0; i < ac_size; i++)
-		printf("%02X ", ac[i]);
-	printf("\n");
+	//go online for approval
+	approval_p1 = 0x00; //AAC -- failed
+	approval_p1 = 0x40; //TC -- approved
+
+	if((ac[0] & 0xC0) == 0x80)
+	{
+		//read the CDOL2, which tells us what to send for the 2nd generate ac command
+		cdol2 = libemv_get_tag(TAG_CDOL_2, &cdol2_size);
+		if(cdol2 == NULL)
+			return LIBEMV_PROCESS_FAIL;
+
+		//compute the CDOL2
+		cmd_size = libemv_dol(cdol2, cdol2_size, cmd_data);
+		if(cmd_size < 0)
+			return LIBEMV_PROCESS_FAIL;
+
+		libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
+		libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
+
+		printf("AC: ");
+		for(i = 0; i < ac_size; i++)
+			printf("%02X ", ac[i]);
+		printf("\n");
+
+	}
+	else
+	{
+		return LIBEMV_PROCESS_FAIL;
+	}
 
 	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_restrictions(void)
+{
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_cardholder_verification(void)
+{
+	libemv_TSI->B1b7 = 1; //cardholder verification run
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_risk_management(void)
+{
+	libemv_TSI->B1b4 = 1; //terminal risk verification
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_offline_authenticate(void)
+{
+	unsigned char *tag_data;
+	int size, ret;
+
+	tag_data = libemv_get_tag(TAG_AIP, &size);
+	if(tag_data[0] & 0x20)
+		ret = verify_dda();
+	else
+		ret = verify_sda();
+
+	//offline authentication was performed
+	libemv_TVR->B1b8 = 0;
+	libemv_TSI->B1b8 = 1;
+
+	if(ret == LIBEMV_OK)
+	{
+		libemv_TVR->B1b7 = 0; //SDA failed
+		libemv_TVR->B1b4 = 0; //DDA failed
+	}
+	else
+	{
+		if(tag_data[0] & 0x20)
+			libemv_TVR->B1b4 = 1; //DDA failed
+		else
+			libemv_TVR->B1b7 = 1; //SDA failed
+	}
+
+	return ret;
 }
 
 static int verify_sda(void)

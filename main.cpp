@@ -390,12 +390,25 @@ int main(int argc, char **argv)
 	}
 
 	printf("running card authentication\n");
-	if(libemv_authenticate_card() == 0)
-	{
-		printf("processing transaction\n");
-		lReturn = libemv_process_transaction();
-		printf(" returns %d\n", lReturn);
-	}
+	if(libemv_process_offline_authenticate() != 0)
+		return 1;
 
+	printf("running restrictions\n");
+	if(libemv_process_restrictions() != 0)
+		return 1;
+
+	printf("running risk management\n");
+	if(libemv_process_risk_management() != 0)
+		return 1;
+
+	printf("running cardholder verification\n");
+	if(libemv_process_cardholder_verification() != 0)
+		return 1;
+
+	printf("processing transaction\n");
+	if(libemv_process_transaction_decision() != 0)
+		return 1;
+
+	printf("TRANSACTION COMPLETE\n");
 	return 0;
 }
