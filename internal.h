@@ -237,4 +237,14 @@ extern EMV_BITS* libemv_TSI;
 extern EMV_BITS* libemv_capa;
 extern EMV_BITS* libemv_addi_capa;
 
+typedef struct
+{
+	unsigned char exponent[5];
+	int exponent_len;
+	unsigned char index;
+	unsigned char rid[5];
+	unsigned char modulus[256];
+	int modulus_len;
+} EMV_RID_MODULUS;
+
 #endif // __INTERNAL_H
