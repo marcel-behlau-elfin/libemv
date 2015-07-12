@@ -296,7 +296,11 @@ int libemv_dol(unsigned char* dol, int dolSize, unsigned char* outBuffer)
 		// Copy data
 		findData = libemv_get_tag(tag, &findSize);
 		if (!findData)
-			findSize = 0;
+		{
+			printf("could not find tag value %04X\n", tag);
+			return -1;
+		}
+
 		sizeToCopy = findSize < size ? findSize : size;
 		if (findData)
 		{

@@ -13,11 +13,39 @@ EMV_BITS* libemv_addi_capa;
 EMV_BITS* libemv_AIP;
 static unsigned char static_data_to_be_auth[10*1024];
 static int static_data_to_be_auth_len = 0;
+static int transaction_number = 1;
 
 static int read_issuer_public_key(unsigned char *key, int *key_size);
 static int read_icc_public_key(unsigned char *key, int *key_size);
 static int verify_sda(void);
 static int verify_dda(void);
+
+static void tobcd(unsigned long long value, unsigned char *val, int len)
+{
+	int i, lower = 1, offset;
+
+	for(i = 0; i < len; i++)
+		val[i] = 0x00;
+
+	offset = len - 1;
+	while(value > 0)
+	{
+		int kar = value % 10;
+		value = value / 10;
+
+		if(lower)
+		{
+			val[offset] |= (kar << 0);
+			lower = 0;
+		}
+		else
+		{
+			val[offset] |= (kar << 4);
+			lower = 1;
+			offset--;
+		}
+	}
+}
 
 LIBEMV_API char libemv_is_emv_ATR(unsigned char* bufATR, int size)
 {
@@ -1141,6 +1169,59 @@ LIBEMV_API int libemv_authenticate_card(void)
 		return verify_sda();
 }
 
+LIBEMV_API int libemv_process_transaction(void)
+{
+	unsigned char cmd_data[1024], read_data[1024], tag[6];
+	unsigned char *cdol1, *ac;
+	unsigned short ac_tag;
+	int i, cmd_size = 0, read_size, ac_size, cdol1_size;
+
+	//authorize amount
+	tobcd(9543, tag, 6);
+	tag[0] = 0x00; tag[1] = 0x00; tag[2] = 0x00; tag[3] = 0x00; tag[4] = 0x10; tag[5] = 0x00;
+	libemv_set_tag(0x9F02, tag, 6);
+
+	//cashback amount
+	tobcd(0, tag, 6);
+	libemv_set_tag(0x9F03, tag, 6);
+
+	//currency code
+	tobcd(840, tag, 2);
+	libemv_set_tag(0x5F2A, tag, 2);
+
+	//currency code
+	tobcd(840, tag, 2);
+	libemv_set_tag(0x5F2A, tag, 2);
+
+	//transaction type
+	tobcd(0, tag, 2);
+	libemv_set_tag(0x9C, tag, 2);
+
+	//read the CDOL1, which tells us what to send for the generate ac command
+	cdol1 = libemv_get_tag(TAG_CDOL_1, &cdol1_size);
+	if(cdol1 == NULL)
+		return LIBEMV_PROCESS_FAIL;
+
+	//compute the CDOL1
+	cmd_size = libemv_dol(cdol1, cdol1_size, cmd_data);
+	if(cmd_size < 0)
+		return LIBEMV_PROCESS_FAIL;
+
+	libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
+	libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
+	if(ac_tag != 0x80)
+		return LIBEMV_PROCESS_FAIL;
+
+	printf("AC: ");
+	for(i = 0; i < ac_size; i++)
+		printf("%02X ", ac[i]);
+	printf("\n");
+
+	
+
+	return LIBEMV_OK;
+}
+
 static int verify_sda(void)
 {
 	unsigned char key[256];
@@ -1154,8 +1235,8 @@ static int verify_sda(void)
 
 static int verify_dda(void)
 {
-	unsigned char key[256], read_data[256], cmd_data[1024], random[8], cert[256], mlist[1024];
-	int ret, key_size, asn_size, ddol_size, cmd_size, read_size, size, i;
+	unsigned char key[256], read_data[256], cmd_data[1024], tag[8], cert[256], mlist[1024], strdate[6];
+	int ret, key_size, asn_size, ddol_size, cmd_size, read_size, size, i, ldd;
 	unsigned char *ddol, *asn, *tag_data, *ptr;
 	unsigned short asn_tag;
 	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
@@ -1166,13 +1247,21 @@ static int verify_dda(void)
 		return ret;
 
 	//compute some random data
-	random[0] = rand()%255; random[1] = rand()%255; random[2] = rand()%255; random[3] = rand()%255;
-	random[4] = rand()%255; random[5] = rand()%255; random[6] = rand()%255; random[7] = rand()%255;
+	tag[0] = rand()%255; tag[1] = rand()%255; tag[2] = rand()%255; tag[3] = rand()%255;
+	libemv_set_tag(0x9F37, tag, 4);
 
-	//set up some terminal tags
-	libemv_set_tag(0x9F37, random, 4); //random
-	libemv_set_tag(0x9F41, random, 4); //transaction number
-	libemv_set_tag(0x9F21, random, 3); //date/time
+	//transaction number
+	tobcd(transaction_number++, tag, 4);
+	libemv_set_tag(0x9F41, tag, 4);
+
+	//datetime
+	libemv_get_date(strdate);
+	tobcd(atoi(strdate), tag, 3);
+	libemv_set_tag(0x9A, tag, 3);
+
+	libemv_get_time(strdate);
+	tobcd(atoi(strdate), tag, 3);
+	libemv_set_tag(0x9F21, tag, 3);
 
 	//read the DDOL, which tells us what to send for the initiate command
 	ddol = libemv_get_tag(TAG_DDOL, &ddol_size);
@@ -1237,6 +1326,10 @@ static int verify_dda(void)
 		if(hash[i] != cert[key_size - 21 + i])
 			return LIBEMV_VERIFY_FAIL;
 	}
+	
+	//store the ICC Dynamic Number
+	ldd = cert[3];
+	libemv_set_tag(0x9F4C, &cert[4], ldd);
 
 	return LIBEMV_OK;
 }

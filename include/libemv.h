@@ -165,6 +165,7 @@ typedef struct
 #define LIBEMV_TERMINATED				-4	// Transaction is terminated
 #define LIBEMV_NOT_SATISFIED			-5	// Get processing option failed
 #define LIBEMV_VERIFY_FAIL              -6
+#define LIBEMV_PROCESS_FAIL             -7
 
 // Transaction flow. Build candidate list
 // Result (return value) can be:
@@ -208,6 +209,9 @@ LIBEMV_API int libemv_read_app_data(void);
 
 // Perform card authentication
 LIBEMV_API int libemv_authenticate_card(void);
+
+// Process transaction
+LIBEMV_API int libemv_process_transaction(void);
 
 /*
 libemv_build_candidate_list

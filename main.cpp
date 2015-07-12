@@ -371,8 +371,12 @@ int main(int argc, char **argv)
 	}
 
 	printf("running card authentication\n");
-	lReturn = libemv_authenticate_card();
-	printf(" returns %d\n", lReturn);
+	if(libemv_authenticate_card() == 0)
+	{
+		printf("processing transaction\n");
+		lReturn = libemv_process_transaction();
+		printf(" returns %d\n", lReturn);
+	}
 
 	return 0;
 }
