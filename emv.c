@@ -1562,7 +1562,11 @@ static int read_issuer_public_key(unsigned char *key, int *key_size)
 	for(i = 0; i < 20; i++)
 	{
 		if(hash[i] != cert[i + 15 + (cert_len - 36)])
+		{
+			if(libemv_debug_enabled)
+				libemv_printf("Issuer certificate hash verify failed\n");
 			return LIBEMV_VERIFY_FAIL;
+		}
 	}
 
 	// Step 8: Verify that the Issuer Identifier matches the lefmost 3-8 PAN digits
@@ -1577,7 +1581,11 @@ static int read_issuer_public_key(unsigned char *key, int *key_size)
 	for(i = 0; i < iin_len; i++)
 	{
 		if(cert[2 + i] != tag_data[i])
+		{
+			if(libemv_debug_enabled)
+				libemv_printf("Issuer certificate PAN verify failed\n");
 			return LIBEMV_VERIFY_FAIL;
+		}
 	}
 
 	// Step 9: Verify that the last day of the month specified in the
