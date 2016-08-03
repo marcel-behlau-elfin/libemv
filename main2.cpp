@@ -1,196 +1,327 @@
+#include <ctype.h>
+#include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <PCSC/wintypes.h>
-#include <PCSC/winscard.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include "include/libemv.h"
 #include "internal.h"
 
-SCARDHANDLE hCardHandle;
+bool libserial_open_device(const char *dev, int *fevdev);
+int fd;
+
+static unsigned char compute_bcc(unsigned char *data, int start, int len)
+{
+	int index = start;
+	unsigned char lrc = data[index];
+	for(int i = start + 1; i < start + len; i++)
+		lrc ^= data[i];
+	return lrc;
+}
+
+static int recv_packet(unsigned char *data, int *data_len)
+{
+	fd_set set;
+	struct timeval timeout;
+	int rb, rv, offset = 0, i, payload_len = 10000;
+	unsigned char *packet = (unsigned char *)malloc(4*1024);
+	unsigned char bcc;
+
+	//receive operation
+	FD_ZERO(&set);
+	FD_SET(fd, &set);
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 2000000;
+
+	//sleep or read
+	rv = select(fd + 1, &set, NULL, NULL, &timeout);
+	if(rv)
+	{
+		while(true)
+		{
+			//read the data
+			rb = read(fd, &packet[offset], 4*1024 - offset);
+			if(rb > 0)
+			{
+				offset += rb;
+
+				//starts with STX
+				if(packet[0] != 0x02)
+				{
+					free(packet);
+					return 1;
+				}
+
+				if(offset >= 3)
+					payload_len = packet[2] + packet[1]*256;
+
+				if(offset >= payload_len + 5)
+				{
+					if(packet[payload_len + 3] != 0x03)
+					{
+						free(packet);
+						return 1;
+					}
+
+					memcpy(data, &packet[3], payload_len);
+					*data_len = payload_len;
+
+printf("RECV: ");
+for(i = 0; i < offset; i++)
+	printf("%02X ", packet[i]);
+printf("\n");
+
+					bcc = compute_bcc(packet, 1, payload_len + 3);
+					if(bcc != packet[4 + payload_len])
+					{
+						printf("Bad BCC %02X != %02X\n", bcc, packet[4 + payload_len]);
+						return 1;
+					}
+
+					free(packet);
+					return 0;
+				}
+			}
+		}
+	}
+	else
+	{
+		free(packet);
+		return 1;
+	}
+}
+
+static void send_packet(unsigned char cmd, unsigned char *data, int data_len)
+{
+	int packet_len = data_len + 6;
+	unsigned char *packet = (unsigned char *)malloc(packet_len);
+
+	packet[0] = 0x02;
+	packet[1] = ((data_len + 1) >> 8) & 0xFF;
+	packet[2] = ((data_len + 1) >> 0) & 0xFF;
+	packet[3] = cmd;
+	if(data != NULL && data_len > 0)
+		memcpy(&packet[4], data, data_len);
+	packet[4 + data_len] = 0x03;
+	packet[5 + data_len] = compute_bcc(packet, 1, packet_len - 2);
+
+	printf("SEND (%d): ", data_len);
+	for(int i = 0; i < packet_len; i++)
+		printf("%02X ", packet[i]);
+	printf("\n");
+
+	write(fd, packet, packet_len);
+	free(packet);
+}
+
+static int send_command(unsigned char cmd, unsigned char *data, int data_len, unsigned char *resp, int *resp_len)
+{
+	send_packet(cmd, data, data_len);
+	return recv_packet(resp, resp_len);
+}
+
+static int icc_reset(unsigned char *atr, int *atr_len)
+{
+	unsigned char response[1024];
+	int response_len;
+
+	if(send_command(0x52, NULL, 0, response, &response_len))
+	{
+		return -1;
+	}
+	else if(response[0] == 0x50)
+	{
+		*atr_len = response_len - 2;
+		memcpy(atr, &response[2], *atr_len);
+		return 0;
+	}
+	else
+	{
+		return -1;
+	}
+}
+
+static int read_track(char *track_data)
+{
+	unsigned char response[1024];
+	int response_len, i;
+	char *ptr = track_data;
+
+	if(send_command(0x4D, NULL, 0, response, &response_len))
+	{
+		return -1;
+	}
+	else if(response[0] == 0x50)
+	{
+		char prefix[] = { '%', ';', ';' };
+		int index = 0;
+ 
+		//start the first track
+		*ptr++ = prefix[index++];
+
+		for(i = 2; i < response_len; i++)
+		{
+			if(response[i] == 0x00)
+			{
+				//end last track
+				if(index > 0)
+					*ptr++ = '?';
+
+				//start this track
+				*ptr++ = prefix[index++];
+
+				//only process 3 tracks
+				if(index == 3)
+					break;
+				else
+					continue;
+			}
+			else
+			{
+				*ptr++ = response[i];
+			}
+		}
+
+		//don't include blank tracks
+		while(*(ptr - 1) == ';')
+			ptr--;
+
+		*ptr++ = 0x00;
+		return 0;
+	}
+	else
+	{
+		printf("Invalid response %02X\n", response[0]);
+		return -1;
+	}
+}
+
+static int clear_track()
+{
+	unsigned char response[128];
+	int response_len;
+
+	if(send_command(0x43, NULL, 0, response, &response_len))
+		return -1;
+	else if(response[0] == 0x50)
+		return 0;
+	else
+		return -1;
+}
+
+static int eject_card()
+{
+	unsigned char response[128];
+	int response_len;
+
+	if(send_command(0x45, NULL, 0, response, &response_len))
+		return -1;
+	else if(response[0] == 0x50)
+		return 0;
+	else
+		return -1;
+}
+
+static int get_status()
+{
+	unsigned char response[128];
+	int response_len;
+
+	if(send_command(0x53, NULL, 0, response, &response_len))
+		return 1;
+	else if(response[0] == 0x50)
+		return response[1];
+	else
+		return 1;
+}
 
 extern "C" char f_apdu(unsigned char cla, unsigned char ins, unsigned char p1, unsigned char p2,
 					  unsigned char dataSize, const unsigned char* data,
 					  int* outDataSize, unsigned char* outData)
 {
-	BYTE pbRecv[256] = {0};
-	DWORD dwRecv = 256;
-	BYTE pbSend[256] = {cla, ins, p1, p2, dataSize};
-	memcpy(pbSend + 5, data, dataSize);
-	DWORD dwSend = 5 + dataSize;
-	LONG lReturn = SCardTransmit(hCardHandle,
-		SCARD_PCI_T0,
-		pbSend,
-		dwSend,
-		NULL,
-		pbRecv,
-		&dwRecv );
-	if ( SCARD_S_SUCCESS != lReturn )
+	unsigned char adpu_packet[4096], response[4096];
+	int adpu_packet_len, response_len;
+
+	adpu_packet[0] = cla;
+	adpu_packet[1] = ins;
+	adpu_packet[2] = p1;
+	adpu_packet[3] = p2;
+	adpu_packet[4] = dataSize;
+
+	if(dataSize > 0)
 	{
-		printf("Failed SCardTransmit\n");
+		memcpy(&adpu_packet[5], data, dataSize);
+		adpu_packet_len = 5 + dataSize;
+	}
+	else
+	{
+		//if we have no data then set Le to 0x00
+		adpu_packet[5] = 0x00;
+		adpu_packet_len = 6;
+	}
+
+	//send the command
+	if(send_command(0x49, adpu_packet, adpu_packet_len, response, &response_len))
 		return 0;
-	}
-	if (dwRecv >= 2 && pbRecv[0] == 0x6C)
+
+	if(response[0] == 0x50)
 	{
-		BYTE pbSend2[256] = {cla, ins, p1, p2, pbRecv[1]};
-		DWORD dwSend = 5;
-		dwRecv = 256;
-		LONG lReturn = SCardTransmit(hCardHandle,
-			SCARD_PCI_T0,
-			pbSend2,
-			dwSend,
-			NULL,
-			pbRecv,
-			&dwRecv );
-		if ( SCARD_S_SUCCESS != lReturn )
-		{
-			printf("Failed SCardTransmit\n");
-			return 0;
-		}
+		*outDataSize = response_len - 2;
+		memcpy(outData, &response[2], response_len - 2);
+		return 1;
 	}
-	if (dwRecv >= 2 && pbRecv[0] == 0x61)
-	{
-		BYTE pbSend2[256] = {0x00, 0xC0, 0x00, 0x00, pbRecv[1]};
-		DWORD dwSend = 5;
-		dwRecv = 256;
-		LONG lReturn = SCardTransmit(hCardHandle,
-			SCARD_PCI_T0,
-			pbSend2,
-			dwSend,
-			NULL,
-			pbRecv,
-			&dwRecv );
-		if ( SCARD_S_SUCCESS != lReturn )
-		{
-			printf("Failed SCardTransmit\n");
-			return 0;
-		}
-	}
-	memcpy(outData, pbRecv, dwRecv);
-	*outDataSize = dwRecv;
-	return 1;
+
+	//invalid response
+	return 0;
 }
 
 int main(int argc, char **argv)
 {
-	SCARDCONTEXT    hSC;
-	LONG            lReturn;
-	// Establish the context.
-	lReturn = SCardEstablishContext(SCARD_SCOPE_USER,
-		NULL,
-		NULL,
-		&hSC);
-	if ( SCARD_S_SUCCESS != lReturn )
+	unsigned char response[4096];
+	int x, response_len, status;
+	unsigned char battr[4096];
+	int battr_len;
+	char track_data[1024];
+
+	if(!libserial_open_device("/dev/hardware/kemv", &fd))
 	{
-		printf("Failed SCardEstablishContext\n");
+		printf("can't not open emv device\n");
 		return 1;
 	}
 
-	LPTSTR          pmszReaders = NULL;
-	DWORD           cch = SCARD_AUTOALLOCATE;	
-
-	lReturn = SCardListReaders(hSC,
-		NULL,
-		(LPTSTR)&pmszReaders,
-		&cch );
-
-	if (lReturn != SCARD_S_SUCCESS || *pmszReaders == '\0')
+	if(send_command(0x56, NULL, 0, response, &response_len))
 	{
-		printf("No readers\n");
-		return 1;
-	}
-	
-	DWORD           dwAP;
-	lReturn = SCardConnect( hSC, 
-		(LPCTSTR)pmszReaders,
-		SCARD_SHARE_SHARED,
-		SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
-		&hCardHandle,
-		&dwAP );
-	SCardFreeMemory( hSC, pmszReaders );
-	if ( SCARD_S_SUCCESS != lReturn )
-	{
-		lReturn = SCardReconnect(hCardHandle,
-			SCARD_SHARE_SHARED,
-			SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
-			SCARD_LEAVE_CARD,
-			&dwAP );
-		if ( SCARD_S_SUCCESS != lReturn )
-		{
-			printf("Failed SCardReconnect\n");
-			return 1;
-		}
-	}
-
-	// Use the connection.
-	// Display the active protocol.
-	switch ( dwAP )
-	{
-	case SCARD_PROTOCOL_T0:
-		printf("Active protocol T0\n"); 
-		break;
-
-	case SCARD_PROTOCOL_T1:
-		printf("Active protocol T1\n"); 
-		break;
-
-	case SCARD_PROTOCOL_UNDEFINED:
-	default:
-		printf("Active protocol unnegotiated or unknown\n"); 
-		break;
-	}
-
-	char           szReader[200];
-	cch = 200;
-	BYTE            bAttr[32];
-	DWORD           cByte = 32;
-	DWORD           dwState, dwProtocol;
-
-	// Determine the status.
-	// hCardHandle was set by an earlier call to SCardConnect.
-	lReturn = SCardStatus(hCardHandle,
-		szReader,
-		&cch,
-		&dwState,
-		&dwProtocol,
-		(LPBYTE)&bAttr,
-		&cByte); 
-
-	if ( SCARD_S_SUCCESS != lReturn )
-	{
-		printf("Failed SCardStatus\n");
+		close(fd);
+		printf("can't query emv device\n");
 		return 1;
 	}
 
-	// Examine retrieved status elements.
-	// Look at the reader name and card state.
-	printf("%S\n", szReader );
-	switch ( dwState )
+	status = get_status();
+	printf("emv card status: %02X\n", status);
+
+	if((status & 0x80) != 0x80)
 	{
-	case SCARD_ABSENT:
-		printf("Card absent.\n");
-		break;
-	case SCARD_PRESENT:
-		printf("Card present.\n");
-		break;
-	case SCARD_SWALLOWED:
-		printf("Card swallowed.\n");
-		break;
-	case SCARD_POWERED:
-		printf("Card has power.\n");
-		break;
-	case SCARD_NEGOTIABLE:
-		printf("Card reset and waiting PTS negotiation.\n");
-		break;
-	case SCARD_SPECIFIC:
-		printf("Card has specific communication protocols set.\n");
-		break;
-	default:
-		printf("Unknown or unexpected card state. %d\n", dwState);
-		break;
+		close(fd);
+		printf("card not inserted\n");
+		return 1;
 	}
 
- srand (time(NULL));
+	if(icc_reset(battr, &battr_len) != 0)
+	{
+		read_track(track_data);
+		close(fd);
+		printf("invalid ICC emv card, track_data = %s\n", track_data);
+		return 1;
+	}
+
+	printf("ATR (%d): ", battr_len);
+	for(x = 0; x < battr_len; x++)
+		printf("%02X ", battr[x]);
+	printf("\n");
+
+	srand(time(NULL));
 	libemv_init();
 
 	libemv_set_debug_enabled(1);
@@ -235,7 +366,7 @@ int main(int argc, char **argv)
 
 	set_applications_data(&visa, 1);
 
-	if (libemv_is_emv_ATR(bAttr, cByte))
+	if (libemv_is_emv_ATR(battr, battr_len))
 		printf("ATR ok.\n");
 	else
 		printf("ATR wrong.\n");
@@ -411,4 +542,124 @@ int main(int argc, char **argv)
 
 	printf("TRANSACTION COMPLETE\n");
 	return 0;
+}
+
+bool libserial_open_device(const char *dev, int *fevdev)
+{
+	int fd, speed;
+	struct termios tty;
+	char dev_mode[100];
+	char buffer[100] = { 0 };
+
+	*fevdev = open(dev, O_RDWR | O_NOCTTY | O_SYNC);
+	if(*fevdev == -1)
+		return false;
+
+	//read the contents of the mode file (e.g. 8N1 115200)
+	sprintf(dev_mode, "%s_mode", dev);
+	fd = open(dev_mode, O_RDONLY);
+	if(fd == -1) return false;
+	if(read(fd, buffer, 100) <= 0) return false;
+	close(fd);
+
+	//trim
+	while(isspace(buffer[strlen(buffer)-1]))
+		buffer[strlen(buffer)-1] = 0x00;
+
+	//get current tty settings
+	memset(&tty, 0, sizeof tty);
+	if(tcgetattr(*fevdev, &tty) != 0)
+	{
+		close(*fevdev);
+		return false;
+	}
+
+	//turn off break, etc, and set up for zero/low timeout
+	cfmakeraw(&tty);
+	tty.c_iflag &= ~IGNBRK;
+	tty.c_lflag = 0;
+	tty.c_oflag = 0;
+	tty.c_cc[VMIN] = 0;
+	tty.c_cc[VTIME] = 1;
+	tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+	tty.c_cflag |= (CLOCAL | CREAD);
+	tty.c_cflag &= ~CRTSCTS;
+
+	//compute the proper settings for communication
+	if(strstr(buffer, "8N1") == buffer)
+	{
+		tty.c_cflag &= ~(PARENB | PARODD);
+		tty.c_cflag &= ~CSTOPB;
+		tty.c_cflag &= ~CSIZE;
+		tty.c_cflag |= CS8;
+	}
+	else if(strstr(buffer, "7E1") == buffer)
+	{
+		tty.c_cflag |= PARENB;
+		tty.c_cflag &= ~PARODD;
+		tty.c_cflag &= ~CSTOPB;
+		tty.c_cflag &= ~CSIZE;
+		tty.c_cflag |= CS7;
+	}
+	else if(strstr(buffer, "7O1") == buffer)
+	{
+		tty.c_cflag |= PARENB;
+		tty.c_cflag |= PARODD;
+		tty.c_cflag &= ~CSTOPB;
+		tty.c_cflag &= ~CSIZE;
+		tty.c_cflag |= CS7;
+	}
+	else
+	{
+		//not a valid serial device
+		close(*fevdev);
+		return false;
+	}
+
+	//find the space and skip to the baud rate
+	char *baud = strstr(buffer, " ") + 1;
+	if(strcmp(baud, "115200") == 0)
+	{
+		speed = B115200;
+	}
+	else if(strcmp(baud, "57600") == 0)
+	{
+		speed = B57600;
+	}
+	else if(strcmp(baud, "38400") == 0)
+	{
+		speed = B38400;
+	}
+	else if(strcmp(baud, "19200") == 0)
+	{
+		speed = B19200;
+	}
+	else if(strcmp(baud, "9600") == 0)
+	{
+		speed = B9600;
+	}
+	else
+	{
+		close(*fevdev);
+		return false;
+	}
+
+	//set the speed
+	cfsetospeed(&tty, speed);
+	cfsetispeed(&tty, speed);
+
+	//set the tty attrs
+	if(tcsetattr(*fevdev, TCSANOW, &tty) != 0)
+	{
+		close(*fevdev);
+		return false;
+	}
+	
+	return true;
+}
+
+void libserial_close_device(int fd)
+{
+	//release the device
+	close(fd);
 }

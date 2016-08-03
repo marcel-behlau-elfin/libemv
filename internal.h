@@ -27,7 +27,7 @@ extern int (*libemv_printf)(const char * format, ...);
 extern char libemv_debug_enabled;
 
 // Debug out binary
-void libemv_debug_buffer(char* strPre, unsigned char* buf, int size, char* strPost);
+void libemv_debug_buffer(const char* strPre, const unsigned char* buf, int size, const char* strPost);
 
 // Init and destroy application buffer
 void libemv_init_tlv_buffer(void);
@@ -106,6 +106,39 @@ char libemv_apdu(unsigned char cla, unsigned char ins, unsigned char p1, unsigne
 #define TAG_PAN								0x5A
 #define TAG_CDOL_1							0x8C
 #define TAG_CDOL_2							0x8D
+#define TAG_TRACK1 0x56
+#define TAG_TRACK2 0x57
+#define TAG_APPLICATION_EFFECTIVE_DATE 0x5F25
+#define TAG_TXN_CURRENCY_CODE 0x5F2A
+#define TAG_SERVICE_CODE 0x5F30
+#define TAG_APPLICATION_PSN 0x5F34
+#define TAG_TXN_CURRENCY_EXPONENT 0x5F36
+#define TAG_ACCOUNT_TYPE 0x5F57 
+#define TAG_CVM_LIST 0x8E
+#define TAG_CERTIFICATE_AUTH_PKI 0x8F
+#define TAG_ISSUER_PUBLIC_KEY_CERTIFICATE 0x90
+#define TAG_ISSUER_PUBLIC_KEY_REMAINDER 0x92 
+#define TAG_ISSUER_PUBLIC_KEY_EXPONENT 0x9F32
+#define TAG_ISSUER_ACTION_CODE_DEFAULT 0x9F0D
+#define TAG_ISSUER_ACTION_CODE_DENIAL 0x9F0E
+#define TAG_ISSUER_ACTION_CODE_ONLINE 0x9F0F 
+#define TAG_ICC_PUBLIC_KEY_CERTIFICATE 0x9F46
+#define TAG_ICC_PUBLIC_KEY_EXPONENT 0x9F47
+#define TAG_ICC_PUBLIC_KEY_REMAINDER 0x9F48
+#define TAG_SDA 0x9F4A
+#define TAG_SDAD 0x9F4B
+#define TAG_APPLICATION_CURRENCY_CODE 0x9F42
+#define TAG_APPLICATION_CURRENCY_EXPONENT 0x9F44
+#define TAG_TRACK1_DISC_DATA 0x9F1F
+#define TAG_TRACK2_DISC_DATA 0x9F20
+#define TAG_ISSUER_COUNTRY_CODE 0x5F28
+#define TAG_APPLICATION_USAGE_CONTROL 0x9F07
+#define TAG_DDOL 0x9F49
+#define TAG_CARDHOLDER_NAME 0x5F20
+#define TAG_CID 0x9F27
+#define TAG_ATC 0x9F36
+#define TAG_APP_CRYPTOGRAM 0x9F26
+#define TAG_IAD 0x9F10
 
 // Bit map, please control out of limits
 typedef struct
@@ -207,5 +240,15 @@ extern EMV_BITS* libemv_TVR;
 extern EMV_BITS* libemv_TSI;
 extern EMV_BITS* libemv_capa;
 extern EMV_BITS* libemv_addi_capa;
+
+typedef struct
+{
+	unsigned char exponent[5];
+	int exponent_len;
+	unsigned char index;
+	unsigned char rid[5];
+	unsigned char modulus[256];
+	int modulus_len;
+} EMV_RID_MODULUS;
 
 #endif // __INTERNAL_H

@@ -1,5 +1,6 @@
 #include "include/libemv.h"
 #include "internal.h"
+#include <stdio.h>
 #include <string.h>
 
 // Application buffer, from ICC and terminal
@@ -296,7 +297,11 @@ int libemv_dol(unsigned char* dol, int dolSize, unsigned char* outBuffer)
 		// Copy data
 		findData = libemv_get_tag(tag, &findSize);
 		if (!findData)
-			findSize = 0;
+		{
+			printf("could not find tag value %04X\n", tag);
+			return -1;
+		}
+
 		sizeToCopy = findSize < size ? findSize : size;
 		if (findData)
 		{

@@ -2,7 +2,7 @@
 #include "internal.h"
 #include <string.h>
 
-void libemv_debug_buffer(char* strPre, unsigned char* buf, int size, char* strPost)
+void libemv_debug_buffer(const char* strPre, const unsigned char* buf, int size, const char* strPost)
 {
 	int i;
 	libemv_printf(strPre);

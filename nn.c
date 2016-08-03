@@ -4,17 +4,15 @@
 	RSAEURO - RSA Library compatible with RSAREF(tm) 2.0. 
  */ 
  
-#include "rsaeuro.h" 
 #include "nn.h" 
  
 /* internal static functions */ 
  
-static NN_DIGIT subdigitmult PROTO_LIST 
-	((NN_DIGIT *, NN_DIGIT *, NN_DIGIT, NN_DIGIT *, unsigned int)); 
+static NN_DIGIT subdigitmult (NN_DIGIT *, NN_DIGIT *, NN_DIGIT, NN_DIGIT *, unsigned int); 
  
-static void dmult PROTO_LIST ((NN_DIGIT, NN_DIGIT, NN_DIGIT *, NN_DIGIT *)); 
+static void dmult (NN_DIGIT, NN_DIGIT, NN_DIGIT *, NN_DIGIT *); 
  
-static unsigned int NN_DigitBits PROTO_LIST ((NN_DIGIT)); 
+static unsigned int NN_DigitBits (NN_DIGIT); 
  
 #ifndef USEASM 
  

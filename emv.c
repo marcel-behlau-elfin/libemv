@@ -1,12 +1,54 @@
 #include "include/libemv.h"
 #include "internal.h"
+#include "nn.h"
+#include "sha1.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 EMV_BITS* libemv_TSI;
 EMV_BITS* libemv_TVR;
 EMV_BITS* libemv_capa;
 EMV_BITS* libemv_addi_capa;
 EMV_BITS* libemv_AIP;
+static unsigned char static_data_to_be_auth[10*1024];
+static int static_data_to_be_auth_len = 0;
+static int transaction_number = 1;
+
+extern EMV_RID_MODULUS libemv_public_modulus[];
+extern int libemv_public_modulus_count;
+
+static int read_issuer_public_key(unsigned char *key, int *key_size);
+static int read_icc_public_key(unsigned char *key, int *key_size);
+static int verify_sda(void);
+static int verify_dda(void);
+
+static void tobcd(unsigned long long value, unsigned char *val, int len)
+{
+	int i, lower = 1, offset;
+
+	for(i = 0; i < len; i++)
+		val[i] = 0x00;
+
+	offset = len - 1;
+	while(value > 0)
+	{
+		int kar = value % 10;
+		value = value / 10;
+
+		if(lower)
+		{
+			val[offset] |= (kar << 0);
+			lower = 0;
+		}
+		else
+		{
+			val[offset] |= (kar << 4);
+			lower = 1;
+			offset--;
+		}
+	}
+}
 
 LIBEMV_API char libemv_is_emv_ATR(unsigned char* bufATR, int size)
 {
@@ -433,7 +475,7 @@ LIBEMV_API int libemv_build_candidate_list(void)
 
 					// Always break
 					break;
-				}				
+				}
 			}
 		}
 	}
@@ -470,7 +512,7 @@ static char check_candidate_in_app_list(LIBEMV_SEL_APPLICATION_INFO* candidate)
 					return 1;
 				}
 			}
-		}		
+		}
 	}
 	return 0;
 }
@@ -539,7 +581,7 @@ static int select_adf_parse(unsigned char* rApdu, int rApduSize, LIBEMV_SEL_APPL
 						if (appInfo)
 							memcpy(appInfo->strApplicationLabel, parseData_3, parseSize_3);
 					}
-				}			
+				}
 
 				// Tag 87 (Application Priority Indicator)
 				if (parseTag_3 == TAG_APP_PRIORITY_INDICATOR)
@@ -872,6 +914,9 @@ LIBEMV_API int libemv_get_processing_option(void)
 	{
 		if (libemv_debug_enabled)
 			libemv_printf("PDOL is absent\n");
+		lcSize = 2;
+		lcData[0] = 0x83;
+		lcData[1] = 0x00;
 	}
 
 	do
@@ -883,7 +928,7 @@ LIBEMV_API int libemv_get_processing_option(void)
 
 		if (!libemv_apdu(0x80, 0xA8, 0x00, 0x00, lcSize, lcData, &outSize, outData))
 		{
-			processingOptionResult =  LIBEMV_ERROR_TRANSMIT;
+			processingOptionResult = LIBEMV_ERROR_TRANSMIT;
 			break;
 		}
 		if (outData[outSize - 2] == 0x69 && outData[outSize - 1] == 0x85)
@@ -895,7 +940,7 @@ LIBEMV_API int libemv_get_processing_option(void)
 		{
 			processingOptionResult = LIBEMV_UNKNOWN_ERROR;
 			break;
-		}		
+		}
 
 		// Parse 6F (FCI Template)
 		parseShift_1 = libemv_parse_tlv(outData, outSize - 2, &parseTag_1, &parseData_1, &parseSize_1);
@@ -996,20 +1041,23 @@ LIBEMV_API int libemv_get_processing_option(void)
 			candidateApplications + (indexApplicationSelected + 1),
 			(candidateApplicationCount - indexApplicationSelected - 1) * sizeof(LIBEMV_SEL_APPLICATION_INFO));
 		candidateApplicationCount--;
-	}	
+	}
 	return processingOptionResult;
 }
 
 LIBEMV_API int libemv_read_app_data(void)
 {
-	unsigned char* aflValue;	
+	unsigned char* aflValue;
 	int aflSize;
 	unsigned char* aflCurrent;
-	int aflIndex;
+	int aflIndex, i;
 	int tagSize;
 
 	if (libemv_debug_enabled)
 		libemv_printf("Read application data\n");
+
+	//start static data authentication again
+	static_data_to_be_auth_len = 0;
 
 	aflValue = libemv_get_tag(TAG_AFL, &aflSize);
 	if (!aflValue || (aflSize % 4) != 0)
@@ -1036,10 +1084,29 @@ LIBEMV_API int libemv_read_app_data(void)
 			if (libemv_debug_enabled)
 				libemv_printf("READ RECORD, SFI: %d, record number: %d\n", (aflCurrent[0] & 0xF8) >> 3, record);
 			if (!libemv_apdu(0x00, 0xB2, record, p2, 0, "", &outSize, outData))
-				return LIBEMV_ERROR_TRANSMIT;			
+				return LIBEMV_ERROR_TRANSMIT;
 
 			if (outData[outSize - 2] != 0x90 || outData[outSize - 1] != 0x00)
-				return LIBEMV_TERMINATED;	
+				return LIBEMV_TERMINATED;
+
+			//include this record in the secure data field?
+			if(aflCurrent[3] != 0)
+			{
+				if((aflCurrent[0] >> 3) < 10)
+				{
+					//TLV must be a template tag
+					if(outData[0] != 0x70)
+						return LIBEMV_UNKNOWN_ERROR;
+
+					for(i = 0; i < outData[1]; i++)
+						static_data_to_be_auth[static_data_to_be_auth_len++] = outData[2+i];
+				}
+				else
+				{
+					for(i = 0; i < outSize; i++)
+						static_data_to_be_auth[static_data_to_be_auth_len++] = outData[i];
+				}
+			}
 
 			// Parse 70
 			parseShift_1 = libemv_parse_tlv(outData, outSize - 2, &parseTag_1, &parseData_1, &parseSize_1);
@@ -1079,5 +1146,583 @@ LIBEMV_API int libemv_read_app_data(void)
 		|| !libemv_get_tag(TAG_CDOL_1, &tagSize) || !libemv_get_tag(TAG_CDOL_2, &tagSize))
 		return LIBEMV_TERMINATED;
 
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_transaction_decision(void)
+{
+	unsigned char cmd_data[1024], read_data[1024], tag[6];
+	unsigned char *cdol1, *cdol2, *ac, approval_p1;
+	unsigned short ac_tag;
+	int i, cmd_size = 0, read_size, ac_size, cdol1_size, cdol2_size;
+
+	//authorize amount
+	tobcd(9543, tag, 6);
+	tag[0] = 0x00; tag[1] = 0x00; tag[2] = 0x00; tag[3] = 0x00; tag[4] = 0x10; tag[5] = 0x00;
+	libemv_set_tag(0x9F02, tag, 6);
+
+	//cashback amount
+	tobcd(0, tag, 6);
+	libemv_set_tag(0x9F03, tag, 6);
+
+	//currency code
+	tobcd(840, tag, 2);
+	libemv_set_tag(0x5F2A, tag, 2);
+
+	//currency code
+	tobcd(840, tag, 2);
+	libemv_set_tag(0x5F2A, tag, 2);
+
+	//transaction type
+	tobcd(0, tag, 2);
+	libemv_set_tag(0x9C, tag, 2);
+
+	//read the CDOL1, which tells us what to send for the generate ac command
+	cdol1 = libemv_get_tag(TAG_CDOL_1, &cdol1_size);
+	if(cdol1 == NULL)
+		return LIBEMV_PROCESS_FAIL;
+
+	//compute the CDOL1
+	cmd_size = libemv_dol(cdol1, cdol1_size, cmd_data);
+	if(cmd_size < 0)
+		return LIBEMV_PROCESS_FAIL;
+
+	libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
+	libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
+	if(ac_tag == TAG_RESPONSE_FORMAT_1)
+	{
+		libemv_set_tag(TAG_CID, &ac[0], 1);
+		libemv_set_tag(TAG_ATC, &ac[1], 2);
+		libemv_set_tag(TAG_APP_CRYPTOGRAM, &ac[3], 8);
+		if(ac_size > 11)
+			libemv_set_tag(TAG_IAD, &ac[11], ac_size - 11);
+	}
+	else
+	{
+		return LIBEMV_PROCESS_FAIL;
+	}
+
+	//go online for approval
+	approval_p1 = 0x00; //AAC -- failed
+	approval_p1 = 0x40; //TC -- approved
+
+	if((ac[0] & 0xC0) == 0x80)
+	{
+		//read the CDOL2, which tells us what to send for the 2nd generate ac command
+		cdol2 = libemv_get_tag(TAG_CDOL_2, &cdol2_size);
+		if(cdol2 == NULL)
+			return LIBEMV_PROCESS_FAIL;
+
+		//compute the CDOL2
+		cmd_size = libemv_dol(cdol2, cdol2_size, cmd_data);
+		if(cmd_size < 0)
+			return LIBEMV_PROCESS_FAIL;
+
+		libemv_apdu(0x80, 0xAE, 0x80, 0x00, cmd_size, cmd_data, &read_size, read_data);
+		libemv_parse_tlv(read_data, read_size, &ac_tag, &ac, &ac_size);
+
+		printf("AC: ");
+		for(i = 0; i < ac_size; i++)
+			printf("%02X ", ac[i]);
+		printf("\n");
+
+	}
+	else
+	{
+		return LIBEMV_PROCESS_FAIL;
+	}
+
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_restrictions(void)
+{
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_cardholder_verification(void)
+{
+	libemv_TSI->B1b7 = 1; //cardholder verification run
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_risk_management(void)
+{
+	libemv_TSI->B1b4 = 1; //terminal risk verification
+	return LIBEMV_OK;
+}
+
+LIBEMV_API int libemv_process_offline_authenticate(void)
+{
+	unsigned char *tag_data;
+	int size, ret;
+
+	tag_data = libemv_get_tag(TAG_AIP, &size);
+	if(tag_data[0] & 0x20)
+		ret = verify_dda();
+	else
+		ret = verify_sda();
+
+	//offline authentication was performed
+	libemv_TVR->B1b8 = 0;
+	libemv_TSI->B1b8 = 1;
+
+	if(ret == LIBEMV_OK)
+	{
+		libemv_TVR->B1b7 = 0; //SDA failed
+		libemv_TVR->B1b4 = 0; //DDA failed
+	}
+	else
+	{
+		if(tag_data[0] & 0x20)
+			libemv_TVR->B1b4 = 1; //DDA failed
+		else
+			libemv_TVR->B1b7 = 1; //SDA failed
+	}
+
+	return ret;
+}
+
+static int verify_sda(void)
+{
+	unsigned char key[256];
+	int ret, key_size;
+
+	if(ret = read_issuer_public_key(key, &key_size))
+		return ret;
+
+	return LIBEMV_OK;
+}
+
+static int verify_dda(void)
+{
+	unsigned char key[256], read_data[256], cmd_data[1024], tag[8], cert[256], mlist[1024], strdate[6];
+	int ret, key_size, asn_size, ddol_size, cmd_size, read_size, size, i, ldd;
+	unsigned char *ddol, *asn, *tag_data, *ptr;
+	unsigned short asn_tag;
+	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
+	unsigned char hash[20];
+	SHA1Context sha1;
+
+	if(ret = read_icc_public_key(key, &key_size))
+		return ret;
+
+	//compute some random data
+	tag[0] = rand()%255; tag[1] = rand()%255; tag[2] = rand()%255; tag[3] = rand()%255;
+	libemv_set_tag(0x9F37, tag, 4);
+
+	//transaction number
+	tobcd(transaction_number++, tag, 4);
+	libemv_set_tag(0x9F41, tag, 4);
+
+	//datetime
+	libemv_get_date(strdate);
+	tobcd(atoi(strdate), tag, 3);
+	libemv_set_tag(0x9A, tag, 3);
+
+	libemv_get_time(strdate);
+	tobcd(atoi(strdate), tag, 3);
+	libemv_set_tag(0x9F21, tag, 3);
+
+	//read the DDOL, which tells us what to send for the initiate command
+	ddol = libemv_get_tag(TAG_DDOL, &ddol_size);
+	if(ddol == NULL)
+		return LIBEMV_VERIFY_FAIL;
+
+	//compute the ddol
+	cmd_size = libemv_dol(ddol, ddol_size, cmd_data);
+
+	//send the intitiate command
+	libemv_apdu(0x00, 0x88, 0x00, 0x00, cmd_size, cmd_data, &read_size, read_data);
+	libemv_parse_tlv(read_data, read_size, &asn_tag, &asn, &asn_size);
+	if(asn_tag == TAG_RESPONSE_FORMAT_1)
+	{
+		libemv_set_tag(TAG_SDAD, asn, asn_size);
+	}
+	else if(asn_tag == TAG_RESPONSE_FORMAT_2)
+	{
+		unsigned char *parseData_1 = asn;
+		int parseSize_1 = asn_size;
+
+		while(1)
+		{
+			int parseShift_2;
+			unsigned short parseTag_2;
+			unsigned char* parseData_2;
+			int parseSize_2;
+
+			parseShift_2 = libemv_parse_tlv(parseData_1, parseSize_1, &parseTag_2, &parseData_2, &parseSize_2);
+			if(!parseShift_2)
+				break;
+
+			libemv_set_tag(parseTag_2, parseData_2, parseSize_2);
+
+			parseData_1 += parseShift_2;
+			parseSize_1 -= parseShift_2;
+		}
+	}
+	else
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad ASN for initiate command %02X\n", asn_tag);
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//get the asn key
+	asn = libemv_get_tag(TAG_SDAD, &asn_size);
+	if(asn_size != key_size)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad ASN size %d\n", asn_size);
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//get the exponent
+	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_EXPONENT, &size);
+
+	NN_Decode(s, MAX_NN_DIGITS, asn, asn_size);
+	NN_Decode(ns, MAX_NN_DIGITS, key, key_size);
+	NN_Decode(es, MAX_NN_DIGITS, tag_data, size);
+	//S^(eS)mod nS
+	NN_AssignZero(x, MAX_NN_DIGITS);
+	NN_ModExp(x, s, es, size, ns, key_size);
+	NN_Encode(cert, key_size, x, key_size);
+
+	// Step 2: The Recovered Data Trailer is equal to 'BC'
+	if(cert[key_size - 1] != 0xBC)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 3: The Recovered Data Header is equal to '6A'
+	if(cert[0] != 0x6A)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 4: The Certificate Format is equal to '05'
+	if(cert[1] != 0x05)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 5: Concatenation of cert data and the DDOL data
+	ptr = mlist;
+	for(i = 0; i < key_size - 22; i++) *ptr++ = cert[i+1];
+	for(i = 0; i < cmd_size; i++) *ptr++ = cmd_data[i];
+
+	// Step 6: Generate hash from concatenation
+	SHA1Reset(&sha1);
+	SHA1Input(&sha1, mlist, ptr - mlist);
+	SHA1Result(&sha1);
+	for(i = 0; i < 5; i++)
+	{
+		hash[(i*4)+0] = (sha1.Message_Digest[i] >> 24) & 0xFF;
+		hash[(i*4)+1] = (sha1.Message_Digest[i] >> 16) & 0xFF;
+		hash[(i*4)+2] = (sha1.Message_Digest[i] >> 8) & 0xFF;
+		hash[(i*4)+3] = (sha1.Message_Digest[i] >> 0) & 0xFF;
+	}
+
+	// Step 7: Compare the hash result with the recovered hash result.
+	//         They have to be equal 
+	for(i = 0; i < 20; i++)
+	{
+		if(hash[i] != cert[key_size - 21 + i])
+			return LIBEMV_VERIFY_FAIL;
+	}
+	
+	//store the ICC Dynamic Number
+	ldd = cert[3];
+	libemv_set_tag(0x9F4C, &cert[4], ldd);
+
+	return LIBEMV_OK;
+}
+
+static int read_issuer_public_key(unsigned char *key, int *key_size)
+{
+	int size, i, ret, iin_len, cert_len;
+	unsigned char *enc_cert, *tag_data, *aid, *pub_key_index;
+	unsigned char cert[256];
+	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
+	EMV_RID_MODULUS *pubkey = NULL;
+	unsigned char mlist[1024], iin[12];
+	unsigned char *ptr = mlist;
+	unsigned char hash[20];
+	SHA1Context sha1;
+
+	//get the aid
+	aid = libemv_get_tag(TAG_AID, &size);
+	if(aid == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("AID not found\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//the first 5 bytes are the RID, we use that with the with the public key index to look up the modulus
+	pub_key_index = libemv_get_tag(TAG_CERTIFICATE_AUTH_PKI, &size);
+	if(pub_key_index == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public key index not found\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//find the public key for the RID/index
+	for(i = 0; i < libemv_public_modulus_count; i++)
+	{
+		if(libemv_public_modulus[i].index == pub_key_index[0] &&
+			libemv_public_modulus[i].rid[0] == aid[0] &&
+			libemv_public_modulus[i].rid[1] == aid[1] &&
+			libemv_public_modulus[i].rid[2] == aid[2] &&
+			libemv_public_modulus[i].rid[3] == aid[3] &&
+			libemv_public_modulus[i].rid[4] == aid[4])
+		{
+			pubkey = &libemv_public_modulus[i];
+			cert_len = pubkey->modulus_len;
+			break;
+		}
+	}
+
+	if(pubkey == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public modulus was not found for RID/index\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	//get the issuer certificate
+	enc_cert = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_CERTIFICATE, &size);
+	if(enc_cert == NULL)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public certificate not found\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	if(size != cert_len)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Public modulus length did not match public modulus\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	NN_Decode(s, MAX_NN_DIGITS, enc_cert, cert_len);
+	NN_Decode(ns, MAX_NN_DIGITS, pubkey->modulus, cert_len);
+	NN_Decode(es, MAX_NN_DIGITS, pubkey->exponent, pubkey->exponent_len);
+
+	//S^(eS)mod nS
+	NN_AssignZero(x, MAX_NN_DIGITS);
+	NN_ModExp(x, s, es, pubkey->exponent_len, ns, cert_len);
+	NN_Encode(cert, cert_len, x, cert_len);
+
+	// Step 2: The Recovered Data Trailer is equal to 'BC'
+	if(cert[cert_len - 1] != 0xBC)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode BC\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	// Step 3: The Recovered Data Header is equal to '6A'
+	if(cert[0] != 0x6A)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode 6A\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	// Step 4: The Certificate Format is equal to '02'
+	if(cert[1] != 0x02)
+	{
+		if(libemv_debug_enabled)
+			libemv_printf("Bad issuer certificate decode 02\n");
+		return LIBEMV_VERIFY_FAIL;
+	}
+
+	// Step 5: Concatenation of Certificate Format through Issuer Public Key
+	//         or Leftmost Digits of the Issuer Public Key, 
+	//         followed by the Issuer Public Key Remainder (if present),
+	//         and the Issuer Public Key Exponent
+	ptr = mlist;
+	for(i = 1; i < 14 + (cert_len - 36) + 1; i++) *ptr++ = cert[i];
+	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_REMAINDER, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_EXPONENT, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+
+	// Step 6: Generate hash from concatenation
+	SHA1Reset(&sha1);
+	SHA1Input(&sha1, mlist, ptr - mlist);
+	SHA1Result(&sha1);
+	for(i = 0; i < 5; i++)
+	{
+		hash[(i*4)+0] = (sha1.Message_Digest[i] >> 24) & 0xFF;
+		hash[(i*4)+1] = (sha1.Message_Digest[i] >> 16) & 0xFF;
+		hash[(i*4)+2] = (sha1.Message_Digest[i] >> 8) & 0xFF;
+		hash[(i*4)+3] = (sha1.Message_Digest[i] >> 0) & 0xFF;
+	}
+
+	// Step 7: Compare the hash result with the recovered hash result.
+	//         They have to be equal 
+	for(i = 0; i < 20; i++)
+	{
+		if(hash[i] != cert[i + 15 + (cert_len - 36)])
+		{
+			if(libemv_debug_enabled)
+				libemv_printf("Issuer certificate hash verify failed\n");
+			return LIBEMV_VERIFY_FAIL;
+		}
+	}
+
+	// Step 8: Verify that the Issuer Identifier matches the lefmost 3-8 PAN digits
+	iin_len = 4;
+	while(cert[2 + iin_len - 1] == 0xFF)
+		iin_len--;
+
+	tag_data = libemv_get_tag(TAG_PAN, &size);
+	if(tag_data == NULL || size < iin_len)
+		return LIBEMV_VERIFY_FAIL;
+
+	for(i = 0; i < iin_len; i++)
+	{
+		if(cert[2 + i] != tag_data[i])
+		{
+			if(libemv_debug_enabled)
+				libemv_printf("Issuer certificate PAN verify failed\n");
+			return LIBEMV_VERIFY_FAIL;
+		}
+	}
+
+	// Step 9: Verify that the last day of the month specified in the
+	//         Certification Expiration Date is equal to or later than today's date.
+
+	//copy the public key
+	ptr = key;
+	for(i = 15; i < 15 + (cert_len - 36); i++) *ptr++ = cert[i];
+	//add the remainder
+	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_REMAINDER, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+
+	*key_size = ptr - key;
+	return LIBEMV_OK;
+}
+
+static int read_icc_public_key(unsigned char *key, int *key_size)
+{
+	unsigned char issuer_key[256];
+	unsigned char *enc_cert, *tag_data, *sdal_data;
+	int i, j, ret, cert_size, size, es_size, sdal_size, iin_len;
+	unsigned char cert[256];
+	unsigned char mlist[1024], iin[12];
+	unsigned char *ptr = mlist;
+	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
+	unsigned char hash[20];
+	SHA1Context sha1;
+
+	//read the issuer public key
+	if(ret = read_issuer_public_key(issuer_key, &cert_size))
+		return ret;
+	NN_Decode(ns, MAX_NN_DIGITS, issuer_key, cert_size);
+
+	//get the icc certificate
+	enc_cert = libemv_get_tag(TAG_ICC_PUBLIC_KEY_CERTIFICATE, &size);
+	if(enc_cert == NULL)
+		return LIBEMV_VERIFY_FAIL;
+	NN_Decode(s, MAX_NN_DIGITS, enc_cert, size);
+
+	//get the exponent
+	tag_data = libemv_get_tag(TAG_ISSUER_PUBLIC_KEY_EXPONENT, &es_size);
+	if(tag_data == NULL)
+		return LIBEMV_VERIFY_FAIL;
+	NN_Decode(es, MAX_NN_DIGITS, tag_data, es_size);
+
+	//S^(eS)mod nS
+	NN_AssignZero(x, MAX_NN_DIGITS);
+	NN_ModExp(x, s, es, es_size, ns, cert_size);
+	NN_Encode(cert, cert_size, x, cert_size);
+
+	// Step 2: The Recovered Data Trailer is equal to 'BC'
+	if(cert[cert_size - 1] != 0xBC)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 3: The Recovered Data Header is equal to '6A'
+	if(cert[0] != 0x6A)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 4: The Certificate Format is equal to '02'
+	if(cert[1] != 0x04)
+		return LIBEMV_VERIFY_FAIL;
+
+	// Step 5: Concatenate for hash
+	//	Certificate Format
+	//	Application PAN
+	//	Certificate Expiration Date
+	//	Certificate Serial Number
+	//	Hash Algorithm Indicator
+	//	ICC Public Key Algorithm Indicator
+	//	ICC Public Key Lnegth
+	//	ICC Public Key Exponent Length
+	//	ICC Public Key or Leftmost Digits of the ICC Public Key
+	//	ICC Public Key Remainder (if present)
+	//	ICC Public Key Exponent
+	//	Data located by the AFL
+	//	SDA Tag List
+	ptr = mlist;
+	for(i = 1; i < 1 + (cert_size - 22); i++) *ptr++ = cert[i];
+	tag_data = libemv_get_tag(TAG_ICC_PUBLIC_KEY_REMAINDER, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+	tag_data = libemv_get_tag(TAG_ICC_PUBLIC_KEY_EXPONENT, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+	//add the sdal
+	for(i = 0; i < static_data_to_be_auth_len; i++) *ptr++ = static_data_to_be_auth[i];
+	//add the SDA tag list
+	sdal_data = libemv_get_tag(TAG_SDA, &sdal_size);
+	for(i = 0; i < sdal_size; i++)
+	{
+		tag_data = libemv_get_tag(sdal_data[i], &size);
+		if(tag_data != NULL) { for(j = 0; j < size; j++) *ptr++ = tag_data[j]; }
+	}
+
+	// Step 6: Generate hash from concatenation
+	SHA1Reset(&sha1);
+	SHA1Input(&sha1, mlist, ptr - mlist);
+	SHA1Result(&sha1);
+	for(i = 0; i < 5; i++)
+	{
+		hash[(i*4)+0] = (sha1.Message_Digest[i] >> 24) & 0xFF;
+		hash[(i*4)+1] = (sha1.Message_Digest[i] >> 16) & 0xFF;
+		hash[(i*4)+2] = (sha1.Message_Digest[i] >> 8) & 0xFF;
+		hash[(i*4)+3] = (sha1.Message_Digest[i] >> 0) & 0xFF;
+	}
+
+	// Step 7: Compare the hash result with the recovered hash result.
+	//         They have to be equal 
+	for(i = 0; i < 20; i++)
+	{
+		if(hash[i] != cert[cert_size - 21 + i])
+			return LIBEMV_VERIFY_FAIL;
+	}
+
+	// Step 8: Verify that the Issuer Identifier matches the lefmost 3-8 PAN digits
+	iin_len = 8;
+	while(cert[2 + iin_len - 1] == 0xFF)
+		iin_len--;
+
+	tag_data = libemv_get_tag(TAG_PAN, &size);
+	if(tag_data == NULL || size < iin_len)
+		return LIBEMV_VERIFY_FAIL;
+
+	for(i = 0; i < iin_len; i++)
+	{
+		if(cert[2 + i] != tag_data[i])
+			return LIBEMV_VERIFY_FAIL;
+	}
+
+	// Step 9: Verify that the last day of the month specified 
+	//         in the Certification Expiration Date is equal to or later than today's date. 
+	
+	//copy the public key
+	ptr = key;
+	for(i = 0; i < (cert_size - 42); i++) *ptr++ = cert[i+21];
+	//add the remainder
+	tag_data = libemv_get_tag(TAG_ICC_PUBLIC_KEY_REMAINDER, &size);
+	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
+
+	*key_size = ptr - key;
 	return LIBEMV_OK;
 }

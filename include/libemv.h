@@ -108,7 +108,7 @@ typedef struct
 // Settings global, EMV book 4, Application Dependent Data
 typedef struct
 {
-	unsigned char RID[5];								// Registered Application Provider Identifier, Ex. {0xA0, 0x00, 0x00, 0x00, 0x03}
+	//unsigned char RID[5];								// Registered Application Provider Identifier, Ex. {0xA0, 0x00, 0x00, 0x00, 0x03}
 	int aidsCount;										// Count of AIDs in this configuration
 	LIBEMV_AID aids[20];								// AIDs of current configuration
 	char strAcquirerIdentifier[7];						// Ex. "100200"
@@ -164,6 +164,8 @@ typedef struct
 #define LIBEMV_NOT_SUPPORTED			-3	// The command is not supported by the ICC (SW1 SW2 = '6A81'), the terminal terminates the card session
 #define LIBEMV_TERMINATED				-4	// Transaction is terminated
 #define LIBEMV_NOT_SATISFIED			-5	// Get processing option failed
+#define LIBEMV_VERIFY_FAIL              -6
+#define LIBEMV_PROCESS_FAIL             -7
 
 // Transaction flow. Build candidate list
 // Result (return value) can be:
@@ -204,6 +206,12 @@ LIBEMV_API int libemv_get_processing_option(void);
 // LIBEMV_OK - ok, you can process next step and use libemv_get_tag to get some tags (for ex. PAN)
 // LIBEMV_TERMINATED, LIBEMV_ERROR_TRANSMIT, LIBEMV_UNKNOWN_ERROR
 LIBEMV_API int libemv_read_app_data(void);
+
+LIBEMV_API int libemv_process_offline_authenticate(void);
+LIBEMV_API int libemv_process_restrictions(void);
+LIBEMV_API int libemv_process_risk_management(void);
+LIBEMV_API int libemv_process_cardholder_verification(void);
+LIBEMV_API int libemv_process_transaction_decision(void);
 
 /*
 libemv_build_candidate_list
