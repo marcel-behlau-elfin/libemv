@@ -1,6 +1,7 @@
 #include "include/libemv.h"
 #include "internal.h"
 #include <string.h>
+#include <stdio.h>
 
 char (*libemv_ext_apdu)(unsigned char cla, unsigned char ins, unsigned char p1, unsigned char p2,
 				   unsigned char dataSize, const unsigned char* data,

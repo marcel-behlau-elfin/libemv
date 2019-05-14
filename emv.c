@@ -1288,7 +1288,8 @@ static int verify_sda(void)
 	unsigned char key[256];
 	int ret, key_size;
 
-	if(ret = read_issuer_public_key(key, &key_size))
+	ret = read_issuer_public_key(key, &key_size);
+	if(ret)
 		return ret;
 
 	return LIBEMV_OK;
@@ -1304,7 +1305,8 @@ static int verify_dda(void)
 	unsigned char hash[20];
 	SHA1Context sha1;
 
-	if(ret = read_icc_public_key(key, &key_size))
+	ret = read_icc_public_key(key, &key_size);
+	if(ret)
 		return ret;
 
 	//compute some random data
@@ -1434,7 +1436,7 @@ static int verify_dda(void)
 
 static int read_issuer_public_key(unsigned char *key, int *key_size)
 {
-	int size, i, ret, iin_len, cert_len;
+	int size, i, ret, iin_len, cert_len = 0;
 	unsigned char *enc_cert, *tag_data, *aid, *pub_key_index;
 	unsigned char cert[256];
 	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
@@ -1615,7 +1617,8 @@ static int read_icc_public_key(unsigned char *key, int *key_size)
 	SHA1Context sha1;
 
 	//read the issuer public key
-	if(ret = read_issuer_public_key(issuer_key, &cert_size))
+	ret = read_issuer_public_key(issuer_key, &cert_size);
+	if(ret)
 		return ret;
 	NN_Decode(ns, MAX_NN_DIGITS, issuer_key, cert_size);
 
