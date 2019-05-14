@@ -1152,7 +1152,7 @@ LIBEMV_API int libemv_read_app_data(void)
 LIBEMV_API int libemv_process_transaction_decision(void)
 {
 	unsigned char cmd_data[1024], read_data[1024], tag[6];
-	unsigned char *cdol1, *cdol2, *ac, approval_p1;
+	unsigned char *cdol1, *cdol2, *ac;
 	unsigned short ac_tag;
 	int i, cmd_size = 0, read_size, ac_size, cdol1_size, cdol2_size;
 
@@ -1201,10 +1201,6 @@ LIBEMV_API int libemv_process_transaction_decision(void)
 	{
 		return LIBEMV_PROCESS_FAIL;
 	}
-
-	//go online for approval
-	approval_p1 = 0x00; //AAC -- failed
-	approval_p1 = 0x40; //TC -- approved
 
 	if((ac[0] & 0xC0) == 0x80)
 	{
