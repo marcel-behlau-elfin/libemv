@@ -1432,12 +1432,12 @@ static int verify_dda(void)
 
 static int read_issuer_public_key(unsigned char *key, int *key_size)
 {
-	int size, i, ret, iin_len, cert_len = 0;
+	int size, i, iin_len, cert_len = 0;
 	unsigned char *enc_cert, *tag_data, *aid, *pub_key_index;
 	unsigned char cert[256];
 	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
 	EMV_RID_MODULUS *pubkey = NULL;
-	unsigned char mlist[1024], iin[12];
+	unsigned char mlist[1024];
 	unsigned char *ptr = mlist;
 	unsigned char hash[20];
 	SHA1Context sha1;
@@ -1606,7 +1606,7 @@ static int read_icc_public_key(unsigned char *key, int *key_size)
 	unsigned char *enc_cert, *tag_data, *sdal_data;
 	int i, j, ret, cert_size, size, es_size, sdal_size, iin_len;
 	unsigned char cert[256];
-	unsigned char mlist[1024], iin[12];
+	unsigned char mlist[1024];
 	unsigned char *ptr = mlist;
 	NN_DIGIT s[MAX_NN_DIGITS], es[MAX_NN_DIGITS], ns[MAX_NN_DIGITS], x[MAX_NN_DIGITS];
 	unsigned char hash[20];
