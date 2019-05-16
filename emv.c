@@ -1146,9 +1146,19 @@ LIBEMV_API int libemv_read_app_data(void)
 	}
 
 	// Check for mandatory
-	if (!libemv_get_tag(TAG_APPLICATION_EXP_DATE, &tagSize) || !libemv_get_tag(TAG_PAN, &tagSize)
-		|| !libemv_get_tag(TAG_CDOL_1, &tagSize) || !libemv_get_tag(TAG_CDOL_2, &tagSize))
-		return LIBEMV_TERMINATED;
+      const char EXP_DATE = !libemv_get_tag(TAG_APPLICATION_EXP_DATE, &tagSize);
+      const char PAN = !libemv_get_tag(TAG_PAN, &tagSize);
+      const char CDOL_1 = !libemv_get_tag(TAG_CDOL_1, &tagSize);
+      const char CDOL_2 = !libemv_get_tag(TAG_CDOL_2, &tagSize);
+      if (EXP_DATE || PAN || CDOL_1 || CDOL_2)
+      {
+            if (libemv_debug_enabled)
+            {
+                    libemv_printf("%s failed: EXP_DATE: %d PAN: %d, CDOL_1: %d, CDOL_2: %d", __PRETTY_FUNCTION__,
+                      EXP_DATE, PAN, CDOL_1, CDOL_2);
+            }
+		//return LIBEMV_TERMINATED;
+      }
 
 	return LIBEMV_OK;
 }
