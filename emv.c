@@ -656,6 +656,10 @@ static void zeroizeAppBuffer(void)
 	libemv_set_tag(TAG_TVR, "\x00\x00\x00\x00\x00", 5);
 	libemv_set_tag(TAG_TSI, "\x00\x00", 2);
 	libemv_set_tag(TAG_AIP, "\x00\x00", 2);
+	libemv_set_tag(TAG_TTQ, "\xF3\x20\x40\x00", 4);
+	libemv_set_tag(TAG_AMOUNT_AUTHORISED_NUMERIC, "\x00\x00\x00\x01\x00\x00", 6);
+	libemv_set_tag(TAG_UN, "\x00\x00\x00\x00", 4);
+	libemv_set_tag(TAG_TXN_CURRENCY_CODE, "\x09\x78", 2);
 
 	// Add value from config
 	libemv_set_tag(TAG_IFD_SERIAL_NUMBER, libemv_global.strIFDSerialNumber, strlen(libemv_global.strIFDSerialNumber));

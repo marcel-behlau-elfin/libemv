@@ -139,6 +139,9 @@ char libemv_apdu(unsigned char cla, unsigned char ins, unsigned char p1, unsigne
 #define TAG_ATC 0x9F36
 #define TAG_APP_CRYPTOGRAM 0x9F26
 #define TAG_IAD 0x9F10
+#define TAG_TTQ 0x9F66
+#define TAG_AMOUNT_AUTHORISED_NUMERIC 0x9F02
+#define TAG_UN 0x9F37
 
 // Bit map, please control out of limits
 typedef struct

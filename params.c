@@ -70,7 +70,7 @@ LIBEMV_API void set_function_debug_printf(int (*f_printf)(const char * format, .
 LIBEMV_SETTINGS libemv_settings;
 LIBEMV_GLOBAL libemv_global;
 int libemv_applications_count;
-LIBEMV_APPLICATIONS* libemv_applications;
+LIBEMV_APPLICATIONS* libemv_applications = 0;
 
 void libemv_destroy_settings(void)
 {
