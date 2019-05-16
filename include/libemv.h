@@ -137,8 +137,12 @@ typedef struct
 	unsigned char transactionReferenceCurrencyExponent;	// Indicates the implied position of the decimal point from the right of the transaction amount, with the Transaction Reference Currency Code represented according to ISO 4217
 } LIBEMV_APPLICATIONS;
 
-// Set list of application and its settings supported by terminal
+// Set list of application and its settings supported by terminal. Within the function, *apps will copied to allocated buffer
 LIBEMV_API void set_applications_data(LIBEMV_APPLICATIONS* apps, int countApps);
+
+// Set list of application and its settings supported by terminal. Within the function, only the pointer apps will be copied.
+// This means, no memory will be allocated, the user has to make sure, that the data will be still valid.
+LIBEMV_API void set_applications_data_external_memory(LIBEMV_APPLICATIONS* apps, int countApps);
 
 // Application info for select application
 typedef struct

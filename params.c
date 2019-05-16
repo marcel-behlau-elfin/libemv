@@ -1,6 +1,8 @@
 #include "include/libemv.h"
 #include "internal.h"
 #include <string.h>
+#include <inttypes.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 char (*libemv_ext_apdu)(unsigned char cla, unsigned char ins, unsigned char p1, unsigned char p2,
@@ -71,11 +73,21 @@ LIBEMV_SETTINGS libemv_settings;
 LIBEMV_GLOBAL libemv_global;
 int libemv_applications_count;
 LIBEMV_APPLICATIONS* libemv_applications = 0;
+bool libemv_applications_allocated_memory = false;
+
+void free_allocated_memory()
+{
+	if (libemv_applications_allocated_memory && libemv_applications)
+	{
+		libemv_free(libemv_applications);
+		libemv_applications_allocated_memory = 0;
+		libemv_applications = 0;
+	}
+}
 
 void libemv_destroy_settings(void)
 {
-	if (libemv_applications)
-		libemv_free(libemv_applications);
+	free_allocated_memory();
 }
 
 LIBEMV_API void libemv_set_library_settings(LIBEMV_SETTINGS* settings)
@@ -90,9 +102,16 @@ LIBEMV_API void libemv_set_global_settings(LIBEMV_GLOBAL* settings)
 
 LIBEMV_API void set_applications_data(LIBEMV_APPLICATIONS* apps, int countApps)
 {
-	if (libemv_applications)
-		libemv_free(libemv_applications);
+	free_allocated_memory();
 	libemv_applications = libemv_malloc(countApps * sizeof(LIBEMV_APPLICATIONS));
 	memcpy(libemv_applications, apps, countApps * sizeof(LIBEMV_APPLICATIONS));
+	libemv_applications_count = countApps;
+	libemv_applications_allocated_memory = true;
+}
+
+LIBEMV_API void set_applications_data_external_memory(LIBEMV_APPLICATIONS* apps, int countApps)
+{
+	free_allocated_memory();
+	libemv_applications = apps;
 	libemv_applications_count = countApps;
 }
