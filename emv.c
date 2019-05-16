@@ -656,14 +656,23 @@ static void zeroizeAppBuffer(void)
 	libemv_set_tag(TAG_TVR, "\x00\x00\x00\x00\x00", 5);
 	libemv_set_tag(TAG_TSI, "\x00\x00", 2);
 	libemv_set_tag(TAG_AIP, "\x00\x00", 2);
-	libemv_set_tag(TAG_TTQ, "\xF3\x20\x40\x00", 4);
-	libemv_set_tag(TAG_AMOUNT_AUTHORISED_NUMERIC, "\x00\x00\x00\x01\x00\x00", 6);
+	//libemv_set_tag(TAG_TTQ, "\x00\x00\x00\x00", 4);
+	//libemv_set_tag(TAG_TTQ, "\xF3\x20\x40\x00", 4);
+	libemv_set_tag(TAG_TTQ, "\xE0\x00\x00\x00", 4);
+	//libemv_set_tag(TAG_AMOUNT_AUTHORISED_NUMERIC, "\x00\x00\x00\x01\x00\x00", 6);
+	libemv_set_tag(TAG_AMOUNT_AUTHORISED_NUMERIC, "\x00\x00\x00\x00\x00\x00", 6);
+	libemv_set_tag(TAG_AMOUNT_OTHER, "\x00\x00\x00\x00\x00\x00", 6);
 	libemv_set_tag(TAG_UN, "\x00\x00\x00\x00", 4);
-	libemv_set_tag(TAG_TXN_CURRENCY_CODE, "\x09\x78", 2);
+	//libemv_set_tag(TAG_TXN_CURRENCY_CODE, "\x09\x78", 2);
+	libemv_set_tag(TAG_TXN_CURRENCY_CODE, "\x00\x00", 2);
+	//libemv_set_tag(TAG_TRANSACTION_DATE, "\x01\x01\x01", 3);
+	libemv_set_tag(TAG_TRANSACTION_DATE, "\x00\x00\x00", 3);
+	libemv_set_tag(TAG_TRANSACTION_TYPE, "\x00", 1);
 
 	// Add value from config
 	libemv_set_tag(TAG_IFD_SERIAL_NUMBER, libemv_global.strIFDSerialNumber, strlen(libemv_global.strIFDSerialNumber));
-	libemv_set_tag(TAG_TERMINAL_COUNTRY_CODE, libemv_global.terminalCountryCode, 2);
+	//libemv_set_tag(TAG_TERMINAL_COUNTRY_CODE, libemv_global.terminalCountryCode, 2);
+	libemv_set_tag(TAG_TERMINAL_COUNTRY_CODE, "\x00\x00", 2);
 	libemv_set_tag(TAG_TERMINAL_CAPABILITIES, libemv_global.terminalCapabilities, 3);
 	libemv_set_tag(TAG_ADDI_TERMINAL_CAPABILITIES, libemv_global.additionalTerminalCapabilities, 5);
 	libemv_set_tag(TAG_TERMINAL_TYPE, &libemv_global.terminalType, 1);
@@ -1018,7 +1027,17 @@ LIBEMV_API int libemv_get_processing_option(void)
 			if (libemv_debug_enabled)
 				libemv_debug_buffer("AIP: ", tagValue, tagSize, "\n");
 
-			tagValue = libemv_get_tag(TAG_AFL, &tagSize);
+			//tagValue = libemv_get_tag(TAG_AFL, &tagSize);
+			//if (!tagValue || tagSize % 4 != 0)
+			//{
+			//	libemv_printf("%s failed: Line: %d\n", __func__, __LINE__);
+			//	processingOptionResult = LIBEMV_UNKNOWN_ERROR;
+			//	break;
+			//}
+			//if (libemv_debug_enabled)
+			//	libemv_debug_buffer("AFL: ", tagValue, tagSize, "\n");
+
+			tagValue = libemv_get_tag(TAG_TRACK2, &tagSize);
 			if (!tagValue || tagSize % 4 != 0)
 			{
 				processingOptionResult = LIBEMV_UNKNOWN_ERROR;
@@ -1180,11 +1199,8 @@ LIBEMV_API int libemv_process_transaction_decision(void)
 	libemv_set_tag(0x9F03, tag, 6);
 
 	//currency code
-	tobcd(840, tag, 2);
-	libemv_set_tag(0x5F2A, tag, 2);
-
-	//currency code
-	tobcd(840, tag, 2);
+	//tobcd(840, tag, 2);
+	tobcd(0, tag, 2);
 	libemv_set_tag(0x5F2A, tag, 2);
 
 	//transaction type

@@ -118,6 +118,8 @@ char libemv_apdu(unsigned char cla, unsigned char ins, unsigned char p1, unsigne
 #define TAG_CERTIFICATE_AUTH_PKI 0x8F
 #define TAG_ISSUER_PUBLIC_KEY_CERTIFICATE 0x90
 #define TAG_ISSUER_PUBLIC_KEY_REMAINDER 0x92 
+#define TAG_TRANSACTION_DATE 0X9A
+#define TAG_TRANSACTION_TYPE 0X9C
 #define TAG_ISSUER_PUBLIC_KEY_EXPONENT 0x9F32
 #define TAG_ISSUER_ACTION_CODE_DEFAULT 0x9F0D
 #define TAG_ISSUER_ACTION_CODE_DENIAL 0x9F0E
@@ -141,6 +143,7 @@ char libemv_apdu(unsigned char cla, unsigned char ins, unsigned char p1, unsigne
 #define TAG_IAD 0x9F10
 #define TAG_TTQ 0x9F66
 #define TAG_AMOUNT_AUTHORISED_NUMERIC 0x9F02
+#define TAG_AMOUNT_OTHER 0x9F03
 #define TAG_UN 0x9F37
 
 // Bit map, please control out of limits
