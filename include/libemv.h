@@ -75,7 +75,7 @@ typedef struct
 LIBEMV_API void libemv_set_library_settings(LIBEMV_SETTINGS* settings);
 
 // Settings global, EMV book 4, Application Independent Data
-typedef struct 
+typedef struct
 {
 	char strIFDSerialNumber[9];							// Ex. "12345678"
 	unsigned char terminalCountryCode[2];				// Ex. {0x08, 0x40}
@@ -85,7 +85,7 @@ typedef struct
 } LIBEMV_GLOBAL;
 
 // Set above settings to libemv
-LIBEMV_API void libemv_set_global_settings(LIBEMV_GLOBAL* settings);
+LIBEMV_API void libemv_set_global_settings(const LIBEMV_GLOBAL* settings);
 
 // Structure of one AID
 typedef struct

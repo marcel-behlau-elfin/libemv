@@ -11,7 +11,13 @@ EMV_BITS* libemv_TVR;
 EMV_BITS* libemv_capa;
 EMV_BITS* libemv_addi_capa;
 EMV_BITS* libemv_AIP;
-static unsigned char static_data_to_be_auth[10*1024];
+
+//unsigned char* get_static_data_to_be_auth()
+//{
+//  static unsigned char static_data_to_be_auth[10*1024];
+//  return static_data_to_be_auth;
+//}
+
 static int static_data_to_be_auth_len = 0;
 static int transaction_number = 1;
 
@@ -1122,12 +1128,16 @@ LIBEMV_API int libemv_read_app_data(void)
 						return LIBEMV_UNKNOWN_ERROR;
 
 					for(i = 0; i < outData[1]; i++)
-						static_data_to_be_auth[static_data_to_be_auth_len++] = outData[2+i];
+                              {
+						//static_data_to_be_auth[static_data_to_be_auth_len++] = outData[2+i];
+                              }
 				}
 				else
 				{
 					for(i = 0; i < outSize; i++)
-						static_data_to_be_auth[static_data_to_be_auth_len++] = outData[i];
+                              {
+						//static_data_to_be_auth[static_data_to_be_auth_len++] = outData[i];
+                              }
 				}
 			}
 
@@ -1446,13 +1456,13 @@ static int verify_dda(void)
 	}
 
 	// Step 7: Compare the hash result with the recovered hash result.
-	//         They have to be equal 
+	//         They have to be equal
 	for(i = 0; i < 20; i++)
 	{
 		if(hash[i] != cert[key_size - 21 + i])
 			return LIBEMV_VERIFY_FAIL;
 	}
-	
+
 	//store the ICC Dynamic Number
 	ldd = cert[3];
 	libemv_set_tag(0x9F4C, &cert[4], ldd);
@@ -1563,7 +1573,7 @@ static int read_issuer_public_key(unsigned char *key, int *key_size)
 	}
 
 	// Step 5: Concatenation of Certificate Format through Issuer Public Key
-	//         or Leftmost Digits of the Issuer Public Key, 
+	//         or Leftmost Digits of the Issuer Public Key,
 	//         followed by the Issuer Public Key Remainder (if present),
 	//         and the Issuer Public Key Exponent
 	ptr = mlist;
@@ -1586,7 +1596,7 @@ static int read_issuer_public_key(unsigned char *key, int *key_size)
 	}
 
 	// Step 7: Compare the hash result with the recovered hash result.
-	//         They have to be equal 
+	//         They have to be equal
 	for(i = 0; i < 20; i++)
 	{
 		if(hash[i] != cert[i + 15 + (cert_len - 36)])
@@ -1698,7 +1708,7 @@ static int read_icc_public_key(unsigned char *key, int *key_size)
 	tag_data = libemv_get_tag(TAG_ICC_PUBLIC_KEY_EXPONENT, &size);
 	if(tag_data != NULL) { for(i = 0; i < size; i++) *ptr++ = tag_data[i]; }
 	//add the sdal
-	for(i = 0; i < static_data_to_be_auth_len; i++) *ptr++ = static_data_to_be_auth[i];
+	//for(i = 0; i < static_data_to_be_auth_len; i++) *ptr++ = static_data_to_be_auth[i];
 	//add the SDA tag list
 	sdal_data = libemv_get_tag(TAG_SDA, &sdal_size);
 	for(i = 0; i < sdal_size; i++)
@@ -1720,7 +1730,7 @@ static int read_icc_public_key(unsigned char *key, int *key_size)
 	}
 
 	// Step 7: Compare the hash result with the recovered hash result.
-	//         They have to be equal 
+	//         They have to be equal
 	for(i = 0; i < 20; i++)
 	{
 		if(hash[i] != cert[cert_size - 21 + i])
@@ -1742,9 +1752,9 @@ static int read_icc_public_key(unsigned char *key, int *key_size)
 			return LIBEMV_VERIFY_FAIL;
 	}
 
-	// Step 9: Verify that the last day of the month specified 
-	//         in the Certification Expiration Date is equal to or later than today's date. 
-	
+	// Step 9: Verify that the last day of the month specified
+	//         in the Certification Expiration Date is equal to or later than today's date.
+
 	//copy the public key
 	ptr = key;
 	for(i = 0; i < (cert_size - 42); i++) *ptr++ = cert[i+21];

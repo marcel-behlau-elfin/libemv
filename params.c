@@ -95,7 +95,7 @@ LIBEMV_API void libemv_set_library_settings(LIBEMV_SETTINGS* settings)
 	memcpy(&libemv_settings, settings, sizeof(LIBEMV_SETTINGS));
 }
 
-LIBEMV_API void libemv_set_global_settings(LIBEMV_GLOBAL* settings)
+LIBEMV_API void libemv_set_global_settings(const LIBEMV_GLOBAL* settings)
 {
 	memcpy(&libemv_global, settings, sizeof(LIBEMV_GLOBAL));
 }
